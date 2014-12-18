@@ -4,3 +4,9 @@
 /.idea/libraries
 .DS_Store
 /build
+app/build.gradle
+/Makefile
+/.gitignore
+/alsaplayer.apk
+/cert.keystore
+

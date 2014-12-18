@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/types.h>
+#include <regex.h>
 #include "tinyxml2.h"
 
 extern "C" {
@@ -135,10 +137,16 @@ DeviceXML::DeviceXML(const char *file, const char *card, const char *device)
 
     for(card_root = cards->FirstChildElement(); card_root; card_root = card_root->NextSiblingElement()) 
 	if(strcmp(card_root->Name(), "card") == 0 && card_root->Attribute("name")) {
+	    int result;
+	    regex_t re;
 	    const char *c = card_root->Attribute("name");
-	    int len = strlen(c);
-		if(len > 1 && *(c + (len-1)) == '*') len--;
-		if(strncmp(c, card, len) == 0) break;
+	    	if(regcomp(&re, c, REG_NOSUB | REG_EXTENDED) != 0) {
+		    card_root = 0;
+		    break;		
+		}
+		result = regexec(&re, card, 0, 0, 0);
+		regfree(&re);
+		if(result == 0) break;
 	}
     if(!card_root) return;
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <cards>
   <!-- builtin=1 means device setup should be added from mixer_paths.xml -->
-  <card name="msm8974*" builtin="1">
+  <card name="(msm8974|apq8084).*" builtin="1">
     <device id="0">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
