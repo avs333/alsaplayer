@@ -4,7 +4,6 @@
 /.idea/libraries
 .DS_Store
 /build
-app/build.gradle
 /Makefile
 /alsaplayer.apk
 /.gitignore
@@ -12,4 +11,5 @@ app/build.gradle
 *.so
 app/jni/test1
 app/jni/flacplayer
+gradle.properties
 
