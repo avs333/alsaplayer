@@ -4,9 +4,7 @@
 /.idea/libraries
 .DS_Store
 /build
-/Makefile
 /alsaplayer.apk
-/.gitignore
 /cert.keystore
 *.so
 app/jni/test1
