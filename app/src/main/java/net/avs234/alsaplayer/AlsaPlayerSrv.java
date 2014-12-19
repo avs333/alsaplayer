@@ -87,6 +87,7 @@ public class AlsaPlayerSrv extends Service {
 	public static final int FORMAT_APE = 2;
 	
 	private int volume = 75;
+	private final int vol_delta = 5;
 	
 	// The lock to acquire so as the device won't go to sleep when we'are playing.  
 	private PowerManager.WakeLock wakeLock = null;
@@ -441,6 +442,7 @@ public class AlsaPlayerSrv extends Service {
 							cur_mode = MODE_ALSA;
 			              			// if(initAudioCard(cur_card,cur_device)) 
 							k = audioPlay(ctx, files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
+							log_msg("audioPlay exited, err=" + k);
 			              		} else {
 							cur_mode = MODE_NONE;	
 							k = extPlay(files[cur_pos],times[cur_pos]+cur_start);
@@ -599,7 +601,7 @@ public class AlsaPlayerSrv extends Service {
 			int i = Process.getThreadPriority(Process.myTid()); 
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
 			int vol;
-			if(volume > 10) vol = volume - 10;
+			if(volume > vol_delta) vol = volume - vol_delta;
 			else vol = 0;
 			if(audioSetVolume(ctx, vol)) volume = vol;
 			Process.setThreadPriority(i);
@@ -612,7 +614,7 @@ public class AlsaPlayerSrv extends Service {
 			int i = Process.getThreadPriority(Process.myTid()); 
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
 			int vol;
-			if(volume < 90) vol = volume + 10;
+			if(volume + vol_delta < 100) vol = volume + vol_delta;
 			else vol = 100;
 			if(audioSetVolume(ctx, vol)) volume = vol;
 			Process.setThreadPriority(i);

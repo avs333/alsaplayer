@@ -122,7 +122,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
     off_t flen = 0;
     off_t off, cur_map_off;	/* file offset currently mapped to mm */
     size_t cur_map_len;		/* size of file chunk currently mapped */
-    const off_t pg_mask = getpagesize() - 1;
+    const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;
     void *mptr, *mend, *mm = MAP_FAILED;
    
     int ape_read(void *buff, int nbytes) 

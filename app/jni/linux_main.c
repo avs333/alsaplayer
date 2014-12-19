@@ -51,6 +51,11 @@ void *thd(void *a)
     return 0;	
 }
 
+void pause_resume(int sig) {
+    if(sig == SIGUSR1) audio_pause(0,0,ctx);
+    else audio_resume(0,0,ctx);
+}
+
 int main(int argc, char **argv)
 {
     int card = 0, device = 0, opt;
@@ -63,7 +68,10 @@ int main(int argc, char **argv)
 	sigemptyset(&set);
 	sigaddset(&set, SIGINT);
 	pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
 	signal(SIGINT, bye);
+	signal(SIGUSR1, pause_resume);	
+	signal(SIGUSR2, pause_resume);	
 
 	while ((opt = getopt(argc, argv, "c:d:s:")) != -1) {
 	    switch (opt) {

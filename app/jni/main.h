@@ -84,6 +84,8 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfil
 #ifndef ANDROID
 extern jint audio_init(JNIEnv *env, jobject obj, playback_ctx *prev_ctx, jint card, jint device);
 extern jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx);
+extern jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx);
+extern jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx);
 #endif
 
 /* alsa.c */

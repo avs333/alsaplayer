@@ -6,7 +6,10 @@
 /build
 app/build.gradle
 /Makefile
-/.gitignore
 /alsaplayer.apk
+/.gitignore
 /cert.keystore
+*.so
+app/jni/test1
+app/jni/flacplayer
 

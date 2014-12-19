@@ -554,7 +554,6 @@ int alsa_start(playback_ctx *ctx)
 		goto err_exit;
 	    }
 	}
-	ctx->written = 0;
 	log_info("setup complete");
 	return 0;
 
@@ -683,41 +682,50 @@ void alsa_stop(playback_ctx *ctx)
 
 	if(priv->pcm_fd >= 0) {
 	    log_info("closing pcm stream");	
-#if 1
 	    if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_DROP) == 0) log_info("pcm_drop: success");	
-#endif
 	    close(priv->pcm_fd);
 	    log_info("pcm stream closed");
 	}
-// test	
-	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);	
 	priv->pcm_fd = -1;
+	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);	
 	if(priv->pcm_buf) free(priv->pcm_buf);
 	priv->pcm_buf = 0;
 }
 
+#if 0
 static bool alsa_pause_ioctl(playback_ctx *ctx, int push) 
 {
-    alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;	
+    int ret;
+    alsa_priv *priv;
+	if(!ctx || !ctx->alsa_priv) return false;
+	priv = (alsa_priv *) ctx->alsa_priv;
 	if((priv->setup_info & SNDRV_PCM_INFO_PAUSE) == 0) {
 	    log_err("pause/resume not supported by hardware");
 	    return false;
-	}		
-    return ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_PAUSE, push) == 0;
+	}
+	ret = ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_PAUSE, push);
+    return ret == 0;
 }
+#endif
 
 bool alsa_pause(playback_ctx *ctx) 
 {
-    alsa_priv *priv;
+#if 0
+    alsa_priv *priv; 
 	if(!ctx || !ctx->alsa_priv) return false;	
 	priv = (alsa_priv *) ctx->alsa_priv;
-	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);	
+	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
     return alsa_pause_ioctl(ctx, 1);
+#else
+    alsa_stop(ctx);	
+    return true;	
+#endif
 }
 
 bool alsa_resume(playback_ctx *ctx) 
 {
-    alsa_priv *priv;
+#if 0
+    alsa_priv *priv; 
 	if(!ctx || !ctx->alsa_priv) return false;	
 	priv = (alsa_priv *) ctx->alsa_priv;
 	if(priv->nv_cur_fmt) set_mixer_controls(ctx, priv->nv_cur_fmt);
@@ -725,6 +733,9 @@ bool alsa_resume(playback_ctx *ctx)
 	if(priv->nv_start) set_mixer_controls(ctx, priv->nv_start);	
 	if(ctx->volume) alsa_set_volume(ctx, ctx->volume, 1);
     return alsa_pause_ioctl(ctx, 0);
+#else
+   return alsa_start(ctx) == 0;
+#endif
 }
 
 
@@ -749,16 +760,17 @@ bool alsa_set_volume(playback_ctx *ctx, int vol, int force_now)
 	} else if(priv->ctls == 0)  log_err("mixer not open");
 	  else if(!nv) log_err("don't know how to control volume of this card");
 	  else {
-	    int v = ctx->samplerate <= 48000 ? (vol * 83)/100 : (vol * 123)/100;
+	    int v = (vol * 84)/100;
+		if(ctx->samplerate > 48000) v += 40;
 		sprintf(tmp, "%d", v);	
 		while(nv) {
 		    nv->value = tmp;
 		    nv = nv->next;
 		}	        
-		if(set_mixer_controls(ctx, priv->nv_vol) == 0) {
+		if(set_mixer_controls(ctx, priv->nv_vol)) {
 		    ctx->volume = vol;	
 		    return true;
-		}			 	
+		}
 	 }
      return false; 
 }

@@ -1,6 +1,9 @@
 
 LOCAL_PATH := $(call my-dir)
 
+# doesn't fuckingly work here: use "ndk-build TARGET_PLATFORM=android-18"
+# TARGET_PLATFORM := android-18
+
 # common codecs & startup library
 include $(CLEAR_VARS)
 LOCAL_MODULE := lossless

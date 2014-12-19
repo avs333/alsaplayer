@@ -96,6 +96,9 @@ static void *audio_write_thread(void *a)
 		    ctx->audio_thread = 0;
 		    return 0;
 		default:
+		    pthread_mutex_unlock(&ctx->mutex);
+		    log_err("cannot happen");	
+		    ctx->audio_thread = 0;
 		    return 0;
 	    }
 	    pthread_mutex_unlock(&ctx->mutex);
@@ -173,12 +176,13 @@ int audio_stop(playback_ctx *ctx, int now)
     }
     if(ctx->buff) buffer_destroy(ctx->buff);
     ctx->buff = 0;
-    alsa_stop(ctx);
+    if(!now) alsa_stop(ctx);
     if(ctx->state != STATE_STOPPED) ctx->state = STATE_STOPPED;	/* normal playback exit */
 
     pthread_mutex_unlock(&ctx->mutex);
 
     ctx->track_time = 0;	
+    if(now) log_info("forced stop: exiting");	
     return 0;
 }
 
@@ -203,6 +207,7 @@ int audio_start(playback_ctx *ctx)
 
 	ret = alsa_start(ctx);
 	if(ret != 0) goto err_init;
+	ctx->written = 0;
 	/* period_size is known after alsa_start() */
 	k = (ctx->period_size > ctx->block_max) ? ctx->period_size : ctx->block_max;
 	/* say, (32k * 8 * 32/8 * 8) = 8M max, reasonable (much less normally) */
@@ -241,7 +246,10 @@ int audio_write(playback_ctx *ctx, void *buff, int size)
     return (i == size) ? 0 : -1;
 }
 
-static jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+#ifdef ANDROID
+static 
+#endif
+jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx) 
 {
     bool ret;
     if(!ctx) {
@@ -263,7 +271,10 @@ static jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx)
     return ret;		
 }
 
-static jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+#ifdef ANDROID
+static 
+#endif
+jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
 {
     bool ret;
     if(!ctx) {
@@ -499,6 +510,5 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved)
 #else
 void update_track_time(JNIEnv *env, jobject obj, int time) { }
 #endif
-
 
 
