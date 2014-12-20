@@ -27,6 +27,7 @@ import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.KeyEvent;
+import net.avs234.alsaplayer.util.AssetsUtils;
 
 /*
 TODO: 
@@ -705,6 +706,7 @@ public class AlsaPlayerSrv extends Service {
 	        	log_err("cannot initialize atrack library");
 	        	stopSelf();
 	        }
+        AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
 	}
 		
 	@Override
