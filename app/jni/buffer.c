@@ -10,6 +10,8 @@
 #include <jni_sub.h>
 #include "main.h"
 
+#define BUFF_FILL_TEST	1
+
 /* TODO: elmimnate memcpys on buffer_get() */
 struct pcm_buffer_t {
     void *mem;
@@ -22,6 +24,10 @@ struct pcm_buffer_t {
     pthread_mutex_t mutex_cond;
     pthread_cond_t  buff_changed;
     pthread_t reader;   
+#ifdef BUFF_FILL_TEST
+    int total_puts, blocked_puts;
+    int total_gets, blocked_gets;
+#endif
 };
 
 pcm_buffer *buffer_create(int size) 
@@ -44,6 +50,10 @@ pcm_buffer *buffer_create(int size)
 void buffer_destroy(pcm_buffer *buff)
 {
     if(buff) {
+#ifdef BUFF_FILL_TEST
+	log_info("blocked/total: writes=%d/%d reads=%d/%d", buff->blocked_puts, buff->total_puts, 
+	    buff->blocked_gets, buff->total_gets);
+#endif
 	if(buff->mem) free(buff->mem);
 	pthread_mutex_destroy(&buff->mutex);
 	pthread_mutex_destroy(&buff->mutex_cond);
@@ -88,7 +98,10 @@ int buffer_put(pcm_buffer *buff, void *src, int bytes)
 	|| !buff->should_run || buff->abort) return -1;
 
     pthread_mutex_lock(&buff->mutex);
-
+#ifdef BUFF_FILL_TEST
+    buff->total_puts++;	
+    if(buff->size - buff->bytes <  bytes) buff->blocked_puts++;	
+#endif
     while(buff->size - buff->bytes <  bytes && buff->should_run && !buff->abort) {
 	pthread_mutex_unlock(&buff->mutex);
 	pthread_mutex_lock(&buff->mutex_cond);
@@ -127,7 +140,10 @@ int buffer_get(pcm_buffer *buff, void *dst, int bytes)
     if(!buff || bytes <= 0 || bytes > buff->size || buff->abort) return -1;
     
     pthread_mutex_lock(&buff->mutex);
-
+#ifdef BUFF_FILL_TEST
+    buff->total_gets++;
+    if(bytes > buff->bytes) buff->blocked_gets++;	
+#endif
     while(bytes > buff->bytes && buff->should_run && !buff->abort) {
 	pthread_mutex_unlock(&buff->mutex);
 	pthread_mutex_lock(&buff->mutex_cond);

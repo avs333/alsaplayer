@@ -210,8 +210,19 @@ int audio_start(playback_ctx *ctx)
 	ctx->written = 0;
 	/* period_size is known after alsa_start() */
 	k = (ctx->period_size > ctx->block_max) ? ctx->period_size : ctx->block_max;
-	/* say, (32k * 8 * 32/8 * 8) = 8M max, reasonable (much less normally) */
-	ctx->buff = buffer_create(k * ctx->channels * (ctx->format->phys_bits/8) * 8);
+
+/* Say, (32k * 8 * 32/8 * 64) = 64M max, reasonable (much less normally). 
+Quick test for the last number for a 15-min 192/24 flac:
+Nexus 5, period size 1536:
+[buffer_destroy] blocked/total: writes=1385/44299 reads=36950/118131	  4
+[buffer_destroy] blocked/total: writes=1167/44299 reads=30085/118131	  8
+[buffer_destroy] blocked/total: writes=55/44299 reads=38319/118131	 32
+[buffer_destroy] blocked/total: writes=0/44299 reads=37624/118131	 64
+[buffer_destroy] blocked/total: writes=0/44299 reads=36467/118131	128
+Linux pc, period size 9648:
+[buffer_destroy] blocked/total: writes=0/44299 reads=18807/18807	  4
+ */
+	ctx->buff = buffer_create(k * ctx->channels * (ctx->format->phys_bits/8) * 64);
 	if(!ctx->buff) {
 	    log_err("cannot create buffer");
 	    goto err_init;	

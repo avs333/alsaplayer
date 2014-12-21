@@ -8,6 +8,6 @@
 /cert.keystore
 *.so
 app/jni/test1
-app/jni/flacplayer
+app/jni/flacplay
 gradle.properties
 
