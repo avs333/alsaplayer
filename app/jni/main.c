@@ -167,6 +167,7 @@ int audio_stop(playback_ctx *ctx, int now)
 	    pthread_join(ctx->audio_thread, 0);
 	    log_info("audio_thread exited");
 	}
+    	alsa_stop(ctx);
 	pthread_mutex_lock(&ctx->stop_mutex);
 	log_info("signalling on completion");
 	ctx->stopped = 1;
@@ -176,7 +177,6 @@ int audio_stop(playback_ctx *ctx, int now)
     }
     if(ctx->buff) buffer_destroy(ctx->buff);
     ctx->buff = 0;
-    if(!now) alsa_stop(ctx);
     if(ctx->state != STATE_STOPPED) ctx->state = STATE_STOPPED;	/* normal playback exit */
 
     pthread_mutex_unlock(&ctx->mutex);
@@ -307,6 +307,7 @@ jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx)
     return ret;	
 }
 
+#ifdef ANDROID
 static jint audio_get_duration(JNIEnv *env, jobject obj, playback_ctx *ctx) 
 {
    if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;	
@@ -319,6 +320,7 @@ static jint audio_get_cur_position(JNIEnv *env, jobject obj, playback_ctx *ctx)
    if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
    return ctx->written/ctx->samplerate;
 }
+#endif
 
 
 #ifdef ANDROID
@@ -372,8 +374,10 @@ jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx)
     free(ctx);	
     return true;
 }
-
-static jboolean audio_set_volume(JNIEnv *env, jobject obj, playback_ctx *ctx, jint vol) 
+#ifdef ANDROID
+static 
+#endif
+jboolean audio_set_volume(JNIEnv *env, jobject obj, playback_ctx *ctx, jint vol) 
 {
     if(!ctx) {
 	log_err("no context");

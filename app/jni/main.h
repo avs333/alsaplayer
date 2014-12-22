@@ -15,8 +15,9 @@ extern "C" {
 #define log_err(fmt, args...)   __android_log_print(ANDROID_LOG_ERROR, "liblossless", "%d [%s] " fmt, gettid(),  __func__, ##args)
 #endif
 #else
-#define log_info(fmt, args...)  printf("liblossless: [%s] " fmt "\n", __func__, ##args)
-#define log_err(fmt, args...)  fprintf(stderr, "liblossless: [%s] " fmt "\n", __func__, ##args)
+extern int quiet_run;
+#define log_info(fmt, args...) do { if(!quiet_run) printf("liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
+#define log_err(fmt, args...)  do { if(!quiet_run) fprintf(stderr, "liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
 #endif
 
 #ifndef timeradd

@@ -23,6 +23,8 @@
 #define __USE_BSD  1
 #include <getopt.h>
 
+int quiet_run = 0;
+
 static playback_ctx *ctx = 0;
 
 struct call_args {
@@ -40,7 +42,7 @@ void bye(int sig)
 
 static int usage(char *prog) 
 {
-   return printf("Usage: %s [-c card] [-d device] [-s min:sec | -t track_no] <file>\n", prog);
+   return printf("Usage: %s [-c card] [-d device] [-s min:sec | -t track_no] [-q] <file>\n", prog);
 }
 
 void *thd(void *a) 
@@ -78,25 +80,28 @@ int main(int argc, char **argv)
 	signal(SIGUSR1, pause_resume);	
 	signal(SIGUSR2, pause_resume);	
 
-	while ((opt = getopt(argc, argv, "c:d:s:t:")) != -1) {
+	while ((opt = getopt(argc, argv, "c:d:s:t:q")) != -1) {
 	    switch (opt) {
 		case 'c':
-		   card = atoi(optarg);
+		    card = atoi(optarg);
 		    break;
 		case 'd':
-		   device = atoi(optarg);
-		   break;
+		    device = atoi(optarg);
+		    break;
 		case 's':
-		   c = strchr(optarg, ':');
-		   if(!c) return printf("invalid time spec\n");
-		   args->min = atoi(optarg);
-		   args->sec = atoi(c+1);
-		   break;
+		    c = strchr(optarg, ':');
+		    if(!c) return printf("invalid time spec\n");
+		    args->min = atoi(optarg);
+		    args->sec = atoi(c+1);
+		    break;
 		case 't':
-		   args->track = atoi(optarg);
-		   break; 
+		    args->track = atoi(optarg);
+		    break; 
+		case 'q':
+		    quiet_run = 1;
+		    break; 	
 		default: /* '?' */
-		   return usage(argv[0]);
+		    return usage(argv[0]);
 	    }
 	}
 	if(optind >= argc) return usage(argv[0]);
@@ -135,7 +140,7 @@ int main(int argc, char **argv)
 
 static int parse_cue(struct call_args *args) {
 
-    char *c, *ce, buff[PATH_MAX], track[64];	
+    char *c, *ce, buff[PATH_MAX], track[64], *title = 0;	
     int found_track = 0;
     struct stat st;
     FILE *f = fopen(args->file, "r");	
@@ -202,13 +207,19 @@ static int parse_cue(struct call_args *args) {
 			if(!ce) return printf("cue parse error: invalid track time\n");
 			*ce = 0;
 			args->sec = atoi(c);
-			printf("Found cue track %d for file %s at %d min %d sec\n", 
-				args->track, args->file, args->min, args->sec);
+			if(title) {
+			    if(quiet_run) printf("Track %d: %s\n", args->track, title);	    
+			    else printf("Track %d: %s at %d min %02d sec\n", args->track, title, args->min, args->sec);	    
+			    free(title);
+			} else printf("Found cue track %d for file %s at [%d:%02d]\n", 
+					args->track, args->file, args->min, args->sec);
 			fclose(f);
 			return 0;
-		    }
-		    if(strncmp(c, "TRACK", 5) == 0) 
-			return printf("cue parse error: no INDEX 01 section for this track\n");	
+		    } else if(strncmp(c, "TITLE ", 6) == 0) {
+			ce = c + strlen(c) - 1; 
+			while(isspace(*ce)) *ce-- = 0;
+			c += 6; title = strdup(c);		
+		    } else if(strncmp(c, "TRACK", 5) == 0) return printf("cue parse error: no INDEX 01 section for this track\n");	
 		    continue;		
 		}
 		for(c = buff; isspace(*c) && *c; c++) ;

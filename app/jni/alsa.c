@@ -79,7 +79,7 @@ static void free_mixer_controls(playback_ctx *ctx);
 static int init_mixer_controls(playback_ctx *ctx, int card);
 static int set_mixer_controls(playback_ctx *ctx, struct nvset *nv);
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(ANDLINUX)
 char mixer_paths_file[] = "/system/etc/mixer_paths.xml";
 char cards_file[] = "/sdcard/.alsaplayer/cards.xml";
 #else
@@ -221,13 +221,13 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    goto err_exit;	
 	}
 	if(!priv->xml_mixp) {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(ANDLINUX)
 	    sprintf(mixer_paths_file, "%s/.alsaplayer/mixer_paths.xml", getenv("HOME"));	
 	    sprintf(cards_file, "%s/.alsaplayer/cards.xml", getenv("HOME"));	
 #endif
 	    priv->xml_mixp = xml_mixp_open(mixer_paths_file);
-	    if(!priv->xml_mixp) log_info("mixer_paths.xml missing");
-	    else log_info("mixer_path.xml opened");
+	    if(!priv->xml_mixp) log_info("%s missing", mixer_paths_file);
+	    else log_info("mixer_paths.xml opened");
 	}
 	sprintf(tmp, "/dev/snd/controlC%d", card);
 	fd = open(tmp, O_RDWR);
@@ -798,7 +798,7 @@ static int init_mixer_controls(playback_ctx *ctx, int card)
 	}
 	if(priv->ctls) free_mixer_controls(ctx);
 
-	snprintf(tmp, sizeof(tmp), "/dev/snd/controlC%u", card);
+	snprintf(tmp, sizeof(tmp), "/dev/snd/controlC%d", card);
 	ctl_fd = open(tmp, O_RDWR);	
 	if(ctl_fd < 0) {
 	    log_err("cannot open mixer");
