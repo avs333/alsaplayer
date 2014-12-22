@@ -418,17 +418,31 @@ int alsa_start(playback_ctx *ctx)
 	    goto err_exit;		
 	}
 	ctx->format = &supp_formats[i];
-	for(i = 0; i < n_supp_rates; i++)
-	    if(supp_rates[i].rate == ctx->samplerate &&
-		(supp_rates[i].mask & priv->supp_rates_mask)) {
-		priv->nv_cur_rate = priv->nv_rate[i];
-		if(priv->nv_cur_rate) set_mixer_controls(ctx, priv->nv_cur_rate);
-		break;
-	    }	
-	if(i == n_supp_rates) {
-	    log_err("device does not support samplerate %d", ctx->bps);
+
+
+	for(k = 0, ret = 1; k <= 2 && ret; k++) {
+	    log_info("trying samplerate %d", ctx->samplerate >> k); 
+	    for(i = 0; i < n_supp_rates; i++)
+		if(supp_rates[i].rate == (ctx->samplerate >> k) &&
+		    (supp_rates[i].mask & priv->supp_rates_mask)) {
+		    priv->nv_cur_rate = priv->nv_rate[i];
+		    if(priv->nv_cur_rate) set_mixer_controls(ctx, priv->nv_cur_rate);
+		    ret = 0; k--;	/* k will be incremented before exiting the outer cycle */	
+		    break;
+		}
+	}
+
+	if(ret) {
+	    log_err("samplerate %d not supported", ctx->samplerate);
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
+	}
+
+	ctx->rate_dec = k;
+	if(k) {
+	    log_info("WARNING: rate=%d not supported by hardware, downsampling to %d", 
+			ctx->samplerate, ctx->samplerate >> k);	
+	    ctx->samplerate >>= k; 	
 	}
 
 	if(priv->nv_start) set_mixer_controls(ctx, priv->nv_start);
@@ -761,7 +775,8 @@ bool alsa_set_volume(playback_ctx *ctx, int vol, int force_now)
 	  else if(!nv) log_err("don't know how to control volume of this card");
 	  else {
 	    int v = (vol * 84)/100;
-		if(ctx->samplerate > 48000) v += 40;
+	//	if(ctx->samplerate > 48000) v += 40;
+		if(ctx->format->strm_bits  >= 24) v += 40;
 		sprintf(tmp, "%d", v);	
 		while(nv) {
 		    nv->value = tmp;

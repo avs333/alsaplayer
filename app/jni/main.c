@@ -209,7 +209,8 @@ int audio_start(playback_ctx *ctx)
 	if(ret != 0) goto err_init;
 	ctx->written = 0;
 	/* period_size is known after alsa_start() */
-	k = (ctx->period_size > ctx->block_max) ? ctx->period_size : ctx->block_max;
+	k = (ctx->period_size > (ctx->block_max >> ctx->rate_dec)) ? 
+		ctx->period_size : (ctx->block_max >> ctx->rate_dec);
 
 /* Say, (32k * 8 * 32/8 * 64) = 64M max, reasonable (much less normally). 
 Quick test for the last number for a 15-min 192/24 flac:

@@ -368,6 +368,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
     off_t off, cur_map_off; /* file offset currently mapped to mm */
     size_t cur_map_len;	
     const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;    
+    int bsz, stride;   
 	
 #ifdef ANDROID
 	file = (*env)->GetStringUTFChars(env,jfile,NULL);
@@ -413,7 +414,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	fc->filesize = flen;
 	fc->bitrate = ((int64_t) (fc->filesize - fc->metadatalength) * 8) / fc->length;
 
-	ctx->samplerate = fc->samplerate;
+	ctx->samplerate = fc->samplerate;	/* ctx->samplerate may change after audio_start() */
 	ctx->channels = fc->channels;	
 	ctx->bps = fc->bps;
 	ctx->track_time = fc->totalsamples / fc->samplerate;
@@ -504,6 +505,9 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		goto done;
 	    }
 	    mptr += fc->gb.index/8; /* step over the bytes consumed by flac_decode_frame() */	
+
+	    bsz = (fc->blocksize >> ctx->rate_dec);
+	    stride = (1 << ctx->rate_dec);	
 	    
 	    switch(ctx->format->fmt) {
 
@@ -511,9 +515,10 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    for(i = 0; i < fc->channels; i++) {
 			src = fc->decoded[i];
 			dst = (int32_t *) pcmbuf + i;
-			for(k = 0; k < fc->blocksize; k++)  {
-			    *dst = *src++;
-			     dst += fc->channels;	
+			for(k = 0; k < bsz; k++)  {
+			    *dst = *src;
+			     dst += fc->channels;
+			     src += stride;
 			}
 		    }
 		    break;	
@@ -522,12 +527,13 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    for(i = 0; i < fc->channels; i++) {
 			uint8_t *dst8 = (uint8_t *) pcmbuf + i * 3;
 			src = fc->decoded[i];
-			for(k = 0; k < fc->blocksize; k++) {
-			     uint32_t y = (uint32_t) (*src++ >> scale); 
+			for(k = 0; k < bsz; k++) {
+			     uint32_t y = (uint32_t) (*src >> scale); 
 			     dst8[0] = (uint8_t) y;
 			     dst8[1] = (uint8_t) (y >> 8);
 			     dst8[2] = (uint8_t) (y >> 16);
 			     dst8 += fc->channels * 3;
+			     src += stride;
 			}
 		    }
 		    break;
@@ -536,9 +542,10 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    for(i = 0; i < fc->channels; i++) {
 			src = fc->decoded[i];
 			dst = (int32_t *) pcmbuf + i;
-			for(k = 0; k < fc->blocksize; k++) {
-			    *dst = (*src++ >> scale);
+			for(k = 0; k < bsz; k++) {
+			    *dst = (*src >> scale);
 			     dst += fc->channels;
+			     src += stride;	
 			}
 		    }
 		    break;
@@ -547,9 +554,10 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    for(i = 0; i < fc->channels; i++) {
 			src = fc->decoded[i];
 			dst16 = (int16_t *) pcmbuf + i;
-		    	for(k = 0; k < fc->blocksize; k++) {
-			    *dst16 = (int16_t) (*src++ >> scale);
+		    	for(k = 0; k < bsz; k++) {
+			    *dst16 = (int16_t) (*src >> scale);
 			     dst16 += fc->channels;
+			     src += stride;	
 			}
 		    }
 		    break;	
@@ -558,7 +566,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    ret = LIBLOSSLESS_ERR_INIT;
 		    goto done; 	
 	    }
-	    i = audio_write(ctx, pcmbuf, fc->blocksize * fc->channels * (phys_bps/8));
+	    i = audio_write(ctx, pcmbuf, bsz * fc->channels * (phys_bps/8));
 	    if(i < 0) {
 		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 		break;

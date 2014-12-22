@@ -288,6 +288,11 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 
 	ret = audio_start(ctx);
 	if(ret != 0) goto done;
+	if(ctx->rate_dec) {
+	    ret = LIBLOSSLESS_ERR_INIT;
+	    log_err("sorry, downsampling APE files not supported yet");
+	    goto done;
+	}
 	
         update_track_time(env,obj,ctx->track_time);
 

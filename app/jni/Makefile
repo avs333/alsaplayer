@@ -3,7 +3,7 @@
  
 ifdef android
 GCCVER=4.9
-ANDPLAT=android-21
+ANDPLAT=android-18
 HOSTARCH=$(shell uname -m)
 NDK ?= $(shell dirname $(shell readlink -e $(shell which ndk-build)))
 SYSROOT=$(NDK)/platforms/$(ANDPLAT)/arch-arm

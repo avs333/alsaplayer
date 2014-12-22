@@ -55,7 +55,9 @@ typedef struct {
 	STATE_PAUSED
    } state;
    int  track_time;			/* set by decoder */
-   int  channels, samplerate, bps;	/* set by decoder */
+   int  channels, bps;			/* set by decoder */
+   int  samplerate;			/* playback samplerate, may be less than file_rate if the latter */
+   int  rate_dec;			/* is not supported by hw: samplerate = (file_rate >> rate_dec)  */
    const playback_format_t *format;	/* set by alsa */
    int  block_min, block_max;		/* set by decoder */
    int  written;			/* set by audio thread */	
