@@ -474,7 +474,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	    int keyCode = event.getKeyCode();
 	    switch (keyCode) {
 	    case KeyEvent.KEYCODE_VOLUME_UP:
-	        if (action == KeyEvent.ACTION_UP) {
+	        if (action == KeyEvent.ACTION_DOWN) {
 	            // Do something to increase a value
 			log_msg("Volume up");
 			if(srv != null) try {  srv.inc_vol(); } catch (Exception e) {}

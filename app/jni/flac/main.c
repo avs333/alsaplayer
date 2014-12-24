@@ -496,7 +496,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 
 	    k = flac_decode_frame(fc, mptr, i, yield);
 	    if(k < 0) {
-		if((unsigned int) (mend - mptr) < 0x1000) {
+		if(cur_map_off + cur_map_len == flen && (unsigned int) (mend - mptr) < 0x2000) {
 		    log_info("garbage at EOF skipped");
 		    goto done;	
 		}

@@ -375,20 +375,37 @@ jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx)
     free(ctx);	
     return true;
 }
+
 #ifdef ANDROID
 static 
 #endif
-jboolean audio_set_volume(JNIEnv *env, jobject obj, playback_ctx *ctx, jint vol) 
+jboolean audio_decrease_volume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
 {
     if(!ctx) {
 	log_err("no context");
 	return false;
     }
     pthread_mutex_lock(&ctx->mutex);
-    alsa_set_volume(ctx, vol, 0);	
+    alsa_decrease_volume(ctx);	
     pthread_mutex_unlock(&ctx->mutex);
     return true;
 }
+
+#ifdef ANDROID
+static 
+#endif
+jboolean audio_increase_volume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+{
+    if(!ctx) {
+	log_err("no context");
+	return false;
+    }
+    pthread_mutex_lock(&ctx->mutex);
+    alsa_increase_volume(ctx);	
+    pthread_mutex_unlock(&ctx->mutex);
+    return true;
+}
+
 
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start) {
 
@@ -477,7 +494,8 @@ static JNINativeMethod methods[] = {
  { "audioResume", "(I)Z", (void *) audio_resume },
  { "audioGetDuration", "(I)I", (void *) audio_get_duration },
  { "audioGetCurPosition", "(I)I", (void *) audio_get_cur_position },
- { "audioSetVolume", "(II)Z", (void *) audio_set_volume },
+ { "audioDecreaseVolume", "(I)Z", (void *) audio_decrease_volume },
+ { "audioIncreaseVolume", "(I)Z", (void *) audio_increase_volume },
  { "audioPlay", "(ILjava/lang/String;II)I", (void *) audio_play },
  { "extractFlacCUE", "(Ljava/lang/String;)[I", (void *) extract_flac_cue },
  { "libInit", "(I)Z", (void *) libinit },

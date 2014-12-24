@@ -51,7 +51,8 @@ public class AlsaPlayerSrv extends Service {
 	
 	public static native int	audioGetDuration(int ctx);
 	public static native int	audioGetCurPosition(int ctx);
-	public static native boolean	audioSetVolume(int ctx, int vol);
+	public static native boolean	audioIncreaseVolume(int ctx);
+	public static native boolean	audioDecreaseVolume(int ctx);
 	
 	public static native int	audioPlay(int ctx, String file, int format, int start);
 	public static native int []	extractFlacCUE(String file);
@@ -86,9 +87,6 @@ public class AlsaPlayerSrv extends Service {
 	public static final int FORMAT_WAV = 0;
 	public static final int FORMAT_FLAC = 1;
 	public static final int FORMAT_APE = 2;
-	
-	private int volume = 75;
-	private final int vol_delta = 5;
 	
 	// The lock to acquire so as the device won't go to sleep when we'are playing.  
 	private PowerManager.WakeLock wakeLock = null;
@@ -369,7 +367,6 @@ public class AlsaPlayerSrv extends Service {
 		   		return false;
 	   		}
 			log_msg("initAuidoCard context=" + String.format("0x%08x",ctx));
-	           	audioSetVolume(ctx,volume);
 		        cur_mode = MODE_ALSA;
 			cur_card = card_no;
 			cur_device = dev_no;
@@ -601,12 +598,9 @@ public class AlsaPlayerSrv extends Service {
 			if(mplayer != null) return true;
 			int i = Process.getThreadPriority(Process.myTid()); 
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
-			int vol;
-			if(volume > vol_delta) vol = volume - vol_delta;
-			else vol = 0;
-			if(audioSetVolume(ctx, vol)) volume = vol;
+			boolean ret = audioDecreaseVolume(ctx);
 			Process.setThreadPriority(i);
-			return true;
+			return ret;
 		}
 		public boolean inc_vol() {
 			log_msg("inc_vol()");
@@ -614,12 +608,9 @@ public class AlsaPlayerSrv extends Service {
 			if(mplayer != null) return true;
 			int i = Process.getThreadPriority(Process.myTid()); 
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
-			int vol;
-			if(volume + vol_delta < 100) vol = volume + vol_delta;
-			else vol = 100;
-			if(audioSetVolume(ctx, vol)) volume = vol;
+			boolean ret = audioIncreaseVolume(ctx);
 			Process.setThreadPriority(i);
-			return true;
+			return ret;
 		}
 		public boolean set_device(int card, int device) {
 			if(initAudioCard(card, device)) {

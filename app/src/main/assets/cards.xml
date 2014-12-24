@@ -26,10 +26,21 @@
 	<path name="fmt" value="SNDRV_PCM_FORMAT_S16_LE"> <ctl name="SLIM_0_RX Format" value="S16_LE"/> </path>
 	<path name="fmt" value="SNDRV_PCM_FORMAT_S24_LE"> <ctl name="SLIM_0_RX Format" value="S24_LE"/> </path>
 	<path name="fmt" value="default"> <ctl name="SLIM_0_RX Format" value="S16_LE"/> </path>
-	<path name="volume"> 
-	     <!-- need some simple eval depending on vol/fmt/rate -->
-	    <ctl name="RX1 Digital Volume" value="%d"/> 
-	    <ctl name="RX2 Digital Volume" value="%d"/> 
+	<path name="digital_volume" value="SNDRV_PCM_FORMAT_S16_LE">
+	    <ctl name="RX1 Digital Volume" value="82" min="0" max="84"/>
+	    <ctl name="RX2 Digital Volume" value="82" min="0" max="84"/>
+	</path>
+	<path name="digital_volume" value="SNDRV_PCM_FORMAT_S24_LE">
+	    <ctl name="RX1 Digital Volume" value="102" min="40" max="124"/>
+	    <ctl name="RX2 Digital Volume" value="102" min="40" max="124"/>
+	</path>
+	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path>
+	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S24_LE">
+	    <ctl name="HPHR Volume" value="20"/>
+	    <ctl name="HPHL Volume" value="20"/>
 	</path>
     </path>
   </card>

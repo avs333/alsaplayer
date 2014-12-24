@@ -65,13 +65,12 @@ typedef struct {
    pthread_mutex_t mutex, stop_mutex;
    pthread_t audio_thread;
    pthread_cond_t cond_stopped;		/* audio_play() is about to exit */
-   int   stopped; 			/* associated variable */
+   int  stopped; 			/* associated variable */
    pthread_cond_t cond_resumed;		/* thread will pause waiting for state change */
-   void *alsa_priv;
-   void *decoder_priv;
    struct pcm_buffer_t *buff; 
-   int  volume;
+   void *alsa_priv;
    int  alsa_error;			/* set on error exit from alsa thread  */
+   void *decoder_priv;
 } playback_ctx;
 
 /* main.c */
@@ -98,7 +97,9 @@ extern void alsa_stop(playback_ctx *ctx);
 extern ssize_t alsa_write(playback_ctx *ctx, size_t count);
 extern bool alsa_pause(playback_ctx *ctx);
 extern bool alsa_resume(playback_ctx *ctx);
-extern bool alsa_set_volume(playback_ctx *ctx, int vol, int force_now);
+extern bool alsa_set_default_volume(playback_ctx *ctx);
+extern bool alsa_increase_volume(playback_ctx *ctx);
+extern bool alsa_decrease_volume(playback_ctx *ctx);
 extern void alsa_exit(playback_ctx *ctx);
 extern void *alsa_get_buffer(playback_ctx *ctx);
 
@@ -120,6 +121,7 @@ extern int ape_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, 
 struct nvset {
     const char *name;
     const char *value;
+    int min, max;
     struct nvset *next;
 };
 

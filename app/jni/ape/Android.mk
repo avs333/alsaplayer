@@ -12,7 +12,7 @@ LOCAL_CFLAGS += -march=armv7-a -mtune=cortex-a8 -mfpu=neon -mfloat-abi=softfp -O
 #LOCAL_CFLAGS += -O3 -Wall -DBUILD_STANDALONE -DCPU_ARM \
 # -fPIC -DARM_ARCH=5 -UDEBUG -DNDEBUG -fomit-frame-pointer -ffreestanding -Iinclude 
 
-LOCAL_ARM_MODE := arm
+#LOCAL_ARM_MODE := arm
 
 include $(BUILD_STATIC_LIBRARY)
 

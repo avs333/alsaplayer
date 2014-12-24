@@ -35,6 +35,7 @@ struct ctl_elem {
     struct ctl_elem *next;
 };
 
+
 static const playback_format_t supp_formats[] = {
     { SNDRV_PCM_FORMAT_S16_LE,  (1 << 0), 16, 16, "SNDRV_PCM_FORMAT_S16_LE" },
     { SNDRV_PCM_FORMAT_S24_LE,  (1 << 1), 32, 24, "SNDRV_PCM_FORMAT_S24_LE" },
@@ -65,19 +66,26 @@ typedef struct _alsa_priv {
     struct nvset *nv_stop;
     struct nvset *nv_rate[n_supp_rates];	
     struct nvset *nv_fmt[n_supp_formats];	
-    struct nvset *nv_vol;	
+    struct nvset *nv_vol_analog[n_supp_formats];
+    struct nvset *nv_vol_digital[n_supp_formats];
     struct ctl_elem *ctls;	
     /* per track params */
     int  pcm_fd;
     void *pcm_buf;
     int  buf_bytes;
-    struct nvset *nv_cur_fmt;
-    struct nvset *nv_cur_rate;	
+    int  cur_fmt;	/* index into nv_fmt[] */
+    int  cur_rate;	/* index into nv_rate[] */
+    /* Set to defaults when the card/device is switched */	
+    int  vol_analog[n_supp_formats];
+    int  vol_digital[n_supp_formats];
 } alsa_priv;
 
 static void free_mixer_controls(playback_ctx *ctx);
 static int init_mixer_controls(playback_ctx *ctx, int card);
 static int set_mixer_controls(playback_ctx *ctx, struct nvset *nv);
+
+typedef enum { VOL_SET_CURRENT, VOL_INCREASE, VOL_DECREASE } vol_ctl_t;
+static bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op); 
 
 #if defined(ANDROID) || defined(ANDLINUX)
 char mixer_paths_file[] = "/system/etc/mixer_paths.xml";
@@ -113,12 +121,15 @@ void alsa_exit(playback_ctx *ctx)
 	if(priv->card_name) free(priv->card_name);
 	if(priv->nv_start) free_nvset(priv->nv_start);
 	if(priv->nv_stop) free_nvset(priv->nv_stop);
-	if(priv->nv_vol) free_nvset(priv->nv_vol);
 	for(k = 0; k < n_supp_rates; k++) 
 	    if(priv->nv_rate[k]) free(priv->nv_rate[k]);
-	for(k = 0; k < n_supp_formats; k++) 
+	for(k = 0; k < n_supp_formats; k++) { 
 	    if(priv->nv_fmt[k]) free(priv->nv_fmt[k]);
+	    if(priv->nv_vol_digital[k]) free(priv->nv_vol_digital[k]);
+	    if(priv->nv_vol_analog[k]) free(priv->nv_vol_analog[k]);
+	}
 	free(priv);
+	ctx->alsa_priv = 0;
 }
 
 #define param_to_interval(p,n)	(&(p->intervals[n - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL]))
@@ -189,46 +200,49 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
     struct snd_pcm_hw_params hwparams;
     alsa_priv *priv;
     struct snd_ctl_card_info info;
-    char *card_name = 0;
-    void *xml_dev = 0;
-    int supp_formats_mask = 0, supp_rates_mask = 0;
-    struct nvset *nv_start = 0, *nv_stop = 0, *nv_vol = 0, 
-	*nv_fmt[n_supp_formats] = { 0 }, *nv_rate[n_supp_rates] = { 0 };
-
-	log_info("switching to card %d device %d", card, device);
 
 	if(!ctx) {
 	    log_err("no context");
 	    return LIBLOSSLESS_ERR_NOCTX;
 	}
-	priv = (alsa_priv *) ctx->alsa_priv;
-
-	if(priv && priv->card == card && priv->device == device) {
-	    log_info("card/device unchanged");
-	    return 0;	
-	} 
-	if(!priv || card != priv->card) {
-	    if(priv) alsa_exit(ctx);
-	    ctx->alsa_priv = calloc(1, sizeof(alsa_priv));
-	    if(!ctx->alsa_priv) return LIBLOSSLESS_ERR_NOMEM;
-	    priv = (alsa_priv *) ctx->alsa_priv;	
-	    priv->card = -1;	
-	    priv->device = -1;
+	if(card < 0 || device < 0) {
+	    log_err("invalid card/device=%d/%d", card, device);	
+	    return LIBLOSSLESS_ERR_INV_PARM;
 	}
-	if(!priv->ctls && init_mixer_controls(ctx, card) != 0) {
+	priv = (alsa_priv *) ctx->alsa_priv;
+	if(priv) {
+	    if(priv->card == card && priv->device == device) {
+		log_info("card/device unchanged");
+		return 0;
+	    } else {
+		alsa_close(ctx);
+		alsa_exit(ctx);	
+		log_info("switching to card %d device %d", card, device);
+	    }
+	}
+
+	ctx->alsa_priv = calloc(1, sizeof(alsa_priv));
+	if(!ctx->alsa_priv) return LIBLOSSLESS_ERR_NOMEM;
+
+	priv = (alsa_priv *) ctx->alsa_priv;	
+
+	priv->card = card;	
+	priv->device = device;
+
+	if(init_mixer_controls(ctx, card) != 0) {
 	    log_err("cannot open mixer for card %d", card);
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
 	}
-	if(!priv->xml_mixp) {
 #if !defined(ANDROID) && !defined(ANDLINUX)
-	    sprintf(mixer_paths_file, "%s/.alsaplayer/mixer_paths.xml", getenv("HOME"));	
-	    sprintf(cards_file, "%s/.alsaplayer/cards.xml", getenv("HOME"));	
+	sprintf(mixer_paths_file, "%s/.alsaplayer/mixer_paths.xml", getenv("HOME"));	
+	sprintf(cards_file, "%s/.alsaplayer/cards.xml", getenv("HOME"));	
 #endif
-	    priv->xml_mixp = xml_mixp_open(mixer_paths_file);
-	    if(!priv->xml_mixp) log_info("%s missing", mixer_paths_file);
-	    else log_info("mixer_paths.xml opened");
-	}
+
+	priv->xml_mixp = xml_mixp_open(mixer_paths_file);
+	if(!priv->xml_mixp) log_info("%s missing", mixer_paths_file);
+	else log_info("%s opened", mixer_paths_file);
+
 	sprintf(tmp, "/dev/snd/controlC%d", card);
 	fd = open(tmp, O_RDWR);
 	if(fd < 0) { /* cannot happen as init_mixer_controls has succeeded */
@@ -236,73 +250,67 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
 	}
-	if(ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info) != 0) {
+	if(ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info) != 0 || !info.name) {
 	    log_err("card info query failed");
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
-	}	
-	card_name = strdup((char *)info.name);
-	if(!card_name) {
-	    log_err("cannot determine card name");	/* can't happen */
-	    ret = LIBLOSSLESS_ERR_AU_SETUP;
-	    goto err_exit;	
 	}
+	priv->card_name = strdup((char *)info.name);
 	close(fd); 
 	fd = -1;
 
-	xml_dev = xml_dev_open(cards_file, card_name, device);	
-	if(!xml_dev) log_info("warning: no settings for card %d (%s) device %d in %s", card, card_name, device, cards_file); 
+	priv->xml_dev = xml_dev_open(cards_file, priv->card_name, device);	
+	if(!priv->xml_dev) log_info("warning: no settings for card %d (%s) device %d in %s", card, priv->card_name, device, cards_file); 
 	else {
 	    struct nvset *nv1 = 0, *nv2 = 0, *nv = 0; 
 	    int hset = 0;
 	    log_info("loaded settings for card %d device %d", card, device);
-	    if(priv->xml_mixp && xml_dev_is_builtin(xml_dev)) {
-		nv_start = xml_mixp_find_control_set(priv->xml_mixp, "headphones");
-		if(!nv_start) {
-		    nv_start = xml_mixp_find_control_set(priv->xml_mixp, "headset");
+	    if(priv->xml_mixp && xml_dev_is_builtin(priv->xml_dev)) {
+		priv->nv_start = xml_mixp_find_control_set(priv->xml_mixp, "headphones");
+		if(!priv->nv_start) {
+		    priv->nv_start = xml_mixp_find_control_set(priv->xml_mixp, "headset");
 		    hset = 1;	
 		}
-		if(nv_start) {
+		if(priv->nv_start) {
 		    log_info("start/stop controls found");	
-		    for(nv1 = nv_start; nv1->next; nv1 = nv1->next) ;	/* set nv1 -> tail of nv_start */
-		    nv_stop = xml_mixp_find_control_set(priv->xml_mixp, hset ? "headset" : "headphones"); /* the same again */
-		    for(nv2 = nv_stop; nv2->next; nv2 = nv2->next) 	/* reset to default values & set nv2 -> tail */
+		    for(nv1 = priv->nv_start; nv1->next; nv1 = nv1->next) ;	/* set nv1 -> tail of nv_start */
+		    priv->nv_stop = xml_mixp_find_control_set(priv->xml_mixp, hset ? "headset" : "headphones"); /* the same again */
+		    for(nv2 = priv->nv_stop; nv2->next; nv2 = nv2->next) 	/* reset to default values & set nv2 -> tail */
 		    	nv2->value = xml_mixp_find_control_default(priv->xml_mixp, nv2->name);
 		    nv2->value = xml_mixp_find_control_default(priv->xml_mixp, nv2->name); 	/* last one */
 		} else log_info("no headphones/headset path");
 	    } else log_info("no headphones/headset path");
 
-	    nv = xml_dev_find_ctls(xml_dev, "start", 0);
-	    if(!nv_start) nv_start = nv;
+	    nv = xml_dev_find_ctls(priv->xml_dev, "start", 0);
+	    if(!priv->nv_start) priv->nv_start = nv;
 	    else nv1->next = nv;	/* if nv_start was found before, nv1 must point to its tail */
 
-	    nv = xml_dev_find_ctls(xml_dev, "stop", 0);
-	    if(!nv_stop) nv_stop = nv2 = nv;
+	    nv = xml_dev_find_ctls(priv->xml_dev, "stop", 0);
+	    if(!priv->nv_stop) priv->nv_stop = nv2 = nv;
 	    else nv2->next = nv; 	/* if nv_stop was found before, nv2 must point to its tail */
+
 	    while(nv2 && nv2->next) nv2 = nv2->next;	/* set nv2 -> tail of nv_stop */
 	    
 	    /* add rate/fmt default values to nv_stop: mixer_paths does not include them! */
-	    nv = xml_dev_find_ctls(xml_dev, "rate", "default");
+	    nv = xml_dev_find_ctls(priv->xml_dev, "rate", "default");
 	    if(nv) log_info("will use %s as default rate", nv->value);
 	    else log_info("no default rate");	
-	    if(!nv_stop) nv_stop = nv2 = nv;
+
+	    if(!priv->nv_stop) priv->nv_stop = nv2 = nv;
 	    else nv2->next = nv;
+
 	    while(nv2 && nv2->next) nv2 = nv2->next;	/* set nv2 -> tail of nv_stop */
 
-	    nv = xml_dev_find_ctls(xml_dev, "fmt", "default");
+	    nv = xml_dev_find_ctls(priv->xml_dev, "fmt", "default");
 	    if(nv) log_info("will use %s as default format", nv->value);
 	    else log_info("no default format");	
-	    if(!nv_stop) nv_stop = nv;
-	    else nv2->next = nv;	/* if nv_stop was found before, nv2 must point to its tail */	
 
-	    nv_vol = xml_dev_find_ctls(xml_dev, "volume", 0);
+	    if(!priv->nv_stop) priv->nv_stop = nv;
+	    else nv2->next = nv;	/* if nv_stop was found before, nv2 must point to its tail */	
 	}
 	/* fire up */
-	if(nv_start) {
-	    int sc = priv->card;
-	    priv->card = card;	
-	    k = set_mixer_controls(ctx, nv_start);
-	    priv->card = sc;
+	if(priv->nv_start) {
+	    k = set_mixer_controls(ctx, priv->nv_start);
 	    if(k < 0) {
 		log_err("failed to startup card %d", card);
 		ret = LIBLOSSLESS_ERR_AU_SETUP;
@@ -319,11 +327,24 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	for(k = 0; k < n_supp_formats; k++) {	
 	    setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0);
 	    if(ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
-		supp_formats_mask |= supp_formats[k].mask;
-		if(xml_dev) {
-		    nv_fmt[k] = xml_dev_find_ctls(xml_dev, "fmt", supp_formats[k].str);
-		    if(nv_fmt[k]) log_info("found controls for fmt=%s", supp_formats[k].str);
-		    else log_info("will use defaults for fmt=%s", supp_formats[k].str);
+		priv->supp_formats_mask |= supp_formats[k].mask;
+		if(!priv->xml_dev) continue;
+		priv->nv_fmt[k] = xml_dev_find_ctls(priv->xml_dev, "fmt", supp_formats[k].str);
+		if(priv->nv_fmt[k]) log_info("found controls for fmt=%s", supp_formats[k].str);
+		else log_info("will use defaults for fmt=%s", supp_formats[k].str);
+	    	priv->nv_vol_analog[k] = xml_dev_find_ctls(priv->xml_dev, "analog_volume", supp_formats[k].str);
+		if(!priv->nv_vol_analog[k]) priv->nv_vol_analog[k] = xml_dev_find_ctls(priv->xml_dev, "analog_volume", 0);
+		if(priv->nv_vol_analog[k]) {
+		    priv->vol_analog[k] = atoi(priv->nv_vol_analog[k]->value);	/* set to default analog value */
+		    log_info("found analog volume controls for fmt=%s: %s %d/%d/%d", supp_formats[k].str, 
+			priv->nv_vol_analog[k]->name, priv->vol_analog[k], priv->nv_vol_analog[k]->min, priv->nv_vol_analog[k]->max);
+		}
+	    	priv->nv_vol_digital[k] = xml_dev_find_ctls(priv->xml_dev, "digital_volume", supp_formats[k].str);
+		if(!priv->nv_vol_digital[k]) priv->nv_vol_digital[k] = xml_dev_find_ctls(priv->xml_dev, "digital_volume", 0);
+		if(priv->nv_vol_digital[k]) {
+		    priv->vol_digital[k] = atoi(priv->nv_vol_digital[k]->value); /* set to default digital value */
+		    log_info("found digital volume controls for fmt=%s: %s %d/%d/%d", supp_formats[k].str,
+			priv->nv_vol_digital[k]->name, priv->vol_digital[k], priv->nv_vol_digital[k]->min, priv->nv_vol_digital[k]->max);
 		}
 	    }
 	}
@@ -331,64 +352,30 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    int rate = supp_rates[k].rate;	
 	    setup_hwparams(&hwparams, 0, rate, 0, 0, 0);	
 	    if(ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
-		supp_rates_mask |= supp_rates[k].mask;
-		if(xml_dev) {
+		priv->supp_rates_mask |= supp_rates[k].mask;
+		if(priv->xml_dev) {
 		    sprintf(tmp, "%d", rate);
-		    nv_rate[k] = xml_dev_find_ctls(xml_dev, "rate", tmp);
-		    if(nv_rate[k]) log_info("found controls for rate=%d", rate);
+		    priv->nv_rate[k] = xml_dev_find_ctls(priv->xml_dev, "rate", tmp);
+		    if(priv->nv_rate[k]) log_info("found controls for rate=%d", rate);
 		    else log_info("will use defaults for rate=%d", rate);
 		}
 	    }
 	}
-	if(!supp_rates_mask || !supp_formats_mask) {
-	    log_err("unsupported hardware (format/rate masks=0x%x/0x%x)", supp_formats_mask, supp_rates_mask);
+	if(!priv->supp_rates_mask || !priv->supp_formats_mask) {
+	    log_err("unsupported hardware (format/rate masks=0x%x/0x%x)", 
+		priv->supp_formats_mask, priv->supp_rates_mask);
 	    ret = LIBLOSSLESS_ERR_AU_GETCONF;
 	    goto err_exit;	
 	}
-
 	close(fd);
-	priv->supp_formats_mask = supp_formats_mask;
-	priv->supp_rates_mask = supp_rates_mask;
-
-	if(priv->nv_start) free_nvset(priv->nv_start); 
-	priv->nv_start = nv_start;
-	if(priv->nv_stop) free_nvset(priv->nv_stop); 
-	priv->nv_stop = nv_stop;
-	if(priv->nv_vol) free_nvset(priv->nv_vol); 
-	priv->nv_vol = nv_vol;
-	for(k = 0; k < n_supp_formats; k++) {
-	    if(priv->nv_fmt[k]) free_nvset(priv->nv_fmt[k]);	 
-	    priv->nv_fmt[k] = nv_fmt[k];	
-	}
-	for(k = 0; k < n_supp_rates; k++) {
-	    if(priv->nv_rate[k]) free_nvset(priv->nv_rate[k]);	 
-	    priv->nv_rate[k] = nv_rate[k];
-	}
-	if(priv->card_name) free(priv->card_name);
-	if(priv->xml_dev) free(priv->xml_dev);
-	priv->card_name = card_name;
-	priv->xml_dev = xml_dev;
-	priv->card = card;
-	priv->device = device;
 	log_info("selected card=%d (%s) device=%d (format/rate masks=0x%x/0x%x)", 
-		card, card_name, device, priv->supp_formats_mask, priv->supp_rates_mask);
+		card, priv->card_name, device, priv->supp_formats_mask, priv->supp_rates_mask);
 
 	return ret;
 
     err_exit:
-	 /* restore previous setup, don't care checking return value */
-	free_mixer_controls(ctx);
 	if(fd >= 0) close(fd);
-	if(card_name) free(card_name);
-	if(xml_dev) xml_dev_close(xml_dev);
-	if(nv_start) free_nvset(nv_start); 
-	if(nv_stop) free_nvset(nv_stop);
-	if(nv_vol) free_nvset(nv_vol);
-	for(k = 0; k < n_supp_formats; k++)
-	    if(nv_fmt[k]) free_nvset(nv_fmt[k]);	 
-	for(k = 0; k < n_supp_formats; k++)
-	    if(nv_rate[k]) free_nvset(nv_rate[k]);	 
-
+	alsa_exit(ctx);
     return ret;	
 
 }
@@ -408,10 +395,10 @@ int alsa_start(playback_ctx *ctx)
 	for(i = 0; i < n_supp_formats; i++)
 	    if(supp_formats[i].strm_bits == ctx->bps && 
 		(supp_formats[i].mask & priv->supp_formats_mask)) {
-		priv->nv_cur_fmt = priv->nv_fmt[i];
-		if(priv->nv_cur_fmt) set_mixer_controls(ctx, priv->nv_cur_fmt);
+		priv->cur_fmt = i;
+		if(priv->nv_fmt[i]) set_mixer_controls(ctx, priv->nv_fmt[i]);
 		break;
-	    }	
+	    }
 	if(i == n_supp_formats) {
 	    log_err("device does not support %d-bit files", ctx->bps);
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
@@ -419,17 +406,22 @@ int alsa_start(playback_ctx *ctx)
 	}
 	ctx->format = &supp_formats[i];
 
-
 	for(k = 0, ret = 1; k <= 2 && ret; k++) {
-	    log_info("trying samplerate %d", ctx->samplerate >> k); 
-	    for(i = 0; i < n_supp_rates; i++)
+	    for(i = 0; i < n_supp_rates; i++) {
 		if(supp_rates[i].rate == (ctx->samplerate >> k) &&
 		    (supp_rates[i].mask & priv->supp_rates_mask)) {
-		    priv->nv_cur_rate = priv->nv_rate[i];
-		    if(priv->nv_cur_rate) set_mixer_controls(ctx, priv->nv_cur_rate);
-		    ret = 0; k--;	/* k will be incremented before exiting the outer cycle */	
+		    priv->cur_rate = i;
+		    if(priv->nv_rate[i]) set_mixer_controls(ctx, priv->nv_rate[i]);
+		    if(k) {
+			log_info("WARNING: rate=%d not supported by hardware, will be downsampled to %d", 
+				ctx->samplerate, ctx->samplerate >> k);	
+			ctx->samplerate >>= k; 	
+			ctx->rate_dec = k;
+		    }
+		    ret = 0;
 		    break;
 		}
+	    }
 	}
 
 	if(ret) {
@@ -438,18 +430,10 @@ int alsa_start(playback_ctx *ctx)
 	    goto err_exit;	
 	}
 
-	ctx->rate_dec = k;
-	if(k) {
-	    log_info("WARNING: rate=%d not supported by hardware, downsampling to %d", 
-			ctx->samplerate, ctx->samplerate >> k);	
-	    ctx->samplerate >>= k; 	
-	}
-
 	if(priv->nv_start) set_mixer_controls(ctx, priv->nv_start);
 	else log_info("no start controls for this device");
 
-	if(ctx->volume == 0) ctx->volume = 100;
-	alsa_set_volume(ctx, ctx->volume, 1);
+	alsa_set_volume(ctx, VOL_SET_CURRENT);	/* must reset according to cur_fmt */
 
 	log_info("opening pcm");
 	sprintf(tmp, "/dev/snd/pcmC%dD%dp", priv->card, priv->device);
@@ -724,72 +708,90 @@ static bool alsa_pause_ioctl(playback_ctx *ctx, int push)
 
 bool alsa_pause(playback_ctx *ctx) 
 {
-#if 0
-    alsa_priv *priv; 
-	if(!ctx || !ctx->alsa_priv) return false;	
-	priv = (alsa_priv *) ctx->alsa_priv;
-	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
-    return alsa_pause_ioctl(ctx, 1);
-#else
     alsa_stop(ctx);	
     return true;	
-#endif
 }
 
 bool alsa_resume(playback_ctx *ctx) 
 {
-#if 0
-    alsa_priv *priv; 
-	if(!ctx || !ctx->alsa_priv) return false;	
-	priv = (alsa_priv *) ctx->alsa_priv;
-	if(priv->nv_cur_fmt) set_mixer_controls(ctx, priv->nv_cur_fmt);
-	if(priv->nv_cur_rate) set_mixer_controls(ctx, priv->nv_cur_rate);
-	if(priv->nv_start) set_mixer_controls(ctx, priv->nv_start);	
-	if(ctx->volume) alsa_set_volume(ctx, ctx->volume, 1);
-    return alsa_pause_ioctl(ctx, 0);
-#else
    return alsa_start(ctx) == 0;
-#endif
 }
 
-
-bool alsa_set_volume(playback_ctx *ctx, int vol, int force_now) 
+static bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op) 
 {
     alsa_priv *priv;
     char tmp[128];
-    struct nvset *nv;
- 	
+    struct nvset *nvd, *nva, *nv;
+    int  vola, vold;
+   	
 	if(!ctx || !ctx->alsa_priv) return false;	
-	if(vol < 0 || vol > 100) {
-	    log_err("value %d out of range", vol);
-	    return false;
-	}
-	log_info("vol=%d force=%d", vol, force_now);
 	priv = (alsa_priv *) ctx->alsa_priv;
-	nv = priv->nv_vol;
-	if(ctx->state != STATE_PLAYING && !force_now) {
-	    log_info("saved volume %d", vol);	
-	    ctx->volume = vol; /* just save it. */
-	    return true; 	
-	} else if(priv->ctls == 0)  log_err("mixer not open");
-	  else if(!nv) log_err("don't know how to control volume of this card");
-	  else {
-	    int v = (vol * 84)/100;
-	//	if(ctx->samplerate > 48000) v += 40;
-		if(ctx->format->strm_bits  >= 24) v += 40;
-		sprintf(tmp, "%d", v);	
-		while(nv) {
-		    nv->value = tmp;
-		    nv = nv->next;
-		}	        
-		if(set_mixer_controls(ctx, priv->nv_vol)) {
-		    ctx->volume = vol;	
-		    return true;
+	nvd = priv->nv_vol_digital[priv->cur_fmt];
+	nva = priv->nv_vol_analog[priv->cur_fmt];
+	if(!nvd && !nva) {
+	    log_err("don't know how to control volume of this card");
+	    return false;
+	}	
+	if(priv->ctls == 0)  {
+	    log_err("no mixer");
+	    return false;	
+	}
+
+	vold = priv->vol_digital[priv->cur_fmt];
+	vola = priv->vol_analog[priv->cur_fmt];
+
+#define VOL_STEP	5	/* decrease/increase in percentage */
+
+	switch(op) {
+	    case VOL_SET_CURRENT:
+		log_info("VOL_SET_CURRENT");
+		break;	
+	    case VOL_INCREASE:
+		if(nvd && nvd->max > nvd->min) {
+		    vold += (VOL_STEP * (nvd->max - nvd->min))/100;
+		    if(vold > nvd->max) vold = nvd->max;
 		}
-	 }
-     return false; 
+		if(nva && nva->max > nva->min) {
+		    vola += (VOL_STEP * (nva->max - nva->min))/100;
+		    if(vola > nva->max) vola = nva->max;
+		}
+		break;
+	    case VOL_DECREASE:
+		if(nvd && nvd->max > nvd->min) {
+		    vold -= (VOL_STEP * (nvd->max - nvd->min))/100;
+		    if(vold < nvd->min) vold = nvd->min;
+		}
+		if(nva && nva->max > nva->min) {
+		    vola -= (VOL_STEP * (nva->max - nva->min))/100;
+		    if(vola < nva->min) vola = nva->min;
+		}
+		break;
+	    default:
+		log_err("invalid op %d specified", op);
+		return false;
+	}
+	if(nvd && (op == VOL_SET_CURRENT || priv->vol_digital[priv->cur_fmt] != vold)) {
+	    sprintf(tmp, "%d", vold);
+	    for(nv = nvd; nv; nv = nv->next) nv->value = tmp; 
+	    if(set_mixer_controls(ctx, nvd)) priv->vol_digital[priv->cur_fmt] = vold;
+	}
+	if(nva && (op == VOL_SET_CURRENT || priv->vol_analog[priv->cur_fmt] != vola)) {
+	    sprintf(tmp, "%d", vola);
+	    for(nv = nva; nv; nv = nv->next) nv->value = tmp; 
+	    if(set_mixer_controls(ctx, nva)) priv->vol_analog[priv->cur_fmt] = vola;
+	}
+     return true; 
 }
 
+bool alsa_increase_volume(playback_ctx *ctx) 
+{
+    return alsa_set_volume(ctx, VOL_INCREASE);	    	
+}
+
+bool alsa_decrease_volume(playback_ctx *ctx) 
+{
+    return alsa_set_volume(ctx, VOL_DECREASE);	    	
+}
 
 /********************************************/
 /************** MIXER STUFF *****************/

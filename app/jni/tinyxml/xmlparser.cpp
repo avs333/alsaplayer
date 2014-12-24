@@ -12,6 +12,7 @@ extern "C" {
     struct nvset {
 	const char *name;
 	const char *value;
+	int min, max;
 	struct nvset *next;	
     };
 }
@@ -157,7 +158,7 @@ DeviceXML::DeviceXML(const char *file, const char *card, const char *device)
 struct nvset *DeviceXML::get_controls(XMLElement *e) {
     XMLElement *x;
     struct nvset *first = 0, *nv;
-    const char *name, *value;	
+    const char *name, *value, *min, *max;	
     for(x = e->FirstChildElement(); x; x = x->NextSiblingElement()) {
 	if(strcmp(x->Name(), "ctl") == 0) {
 	    name = x->Attribute("name");
@@ -167,6 +168,12 @@ struct nvset *DeviceXML::get_controls(XMLElement *e) {
 	    else {
 		nv->next = (struct nvset *) malloc(sizeof(struct nvset));	
 		nv = nv->next;
+	    }
+	    min = x->Attribute("min");
+	    max = x->Attribute("max");
+	    if(min && max) {
+		nv->min = atoi(min);
+		nv->max = atoi(max);
 	    }
 	    nv->name = name;
 	    nv->value = value;

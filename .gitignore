@@ -10,4 +10,4 @@
 app/jni/test1
 app/jni/flacplay
 gradle.properties
-
+/app/jni/tinyxml/xmltest.c
