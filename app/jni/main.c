@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <pthread.h>
@@ -52,6 +53,8 @@ static void thread_exit(int j) {
 }
 #endif
 
+#define TEST_TIMING	1
+
 static void *audio_write_thread(void *a) 
 {
     playback_ctx *ctx = (playback_ctx *) a;
@@ -59,6 +62,12 @@ static void *audio_write_thread(void *a)
 #if 0
     sigset_t set;
     struct sigaction sact = { .sa_handler = thread_exit,  };
+#endif
+
+#ifdef TEST_TIMING
+    struct timeval tstart, tstop, tdiff;
+    int  writes = 0, gets = 0;
+    unsigned long long us_write = 0, us_get = 0;	
 #endif
     void *pcm_buf = alsa_get_buffer(ctx);
 
@@ -77,7 +86,16 @@ static void *audio_write_thread(void *a)
 	while(1) {
 	    k = sync_state(ctx, __func__);
 	    if(k < 0) break;
+#ifdef TEST_TIMING
+	    gettimeofday(&tstart,0);
+#endif
 	    k = buffer_get(ctx->buff, pcm_buf, ctx->period_size * f2b);
+#ifdef TEST_TIMING
+	    gettimeofday(&tstop,0);
+	    timersub(&tstop, &tstart, &tdiff);
+	    us_get += tdiff.tv_usec;
+	    gets++;	
+#endif
 	    if(k <= 0) {
 		log_info("buffer stopped or empty, exiting");
 		break;
@@ -85,14 +103,27 @@ static void *audio_write_thread(void *a)
 	    pthread_mutex_lock(&ctx->mutex);
 	    switch(ctx->state) {
 		case STATE_PLAYING:
+#ifdef TEST_TIMING
+		    gettimeofday(&tstart,0);
+#endif
 		    i = alsa_write(ctx, k/f2b);
+#ifdef TEST_TIMING
+		    gettimeofday(&tstop,0);
+		    timersub(&tstop, &tstart, &tdiff);
+		    us_write += tdiff.tv_usec;
+		    writes++;	
+#endif
 		    break;
 		case STATE_PAUSED:
 		    pthread_mutex_unlock(&ctx->mutex);
 		    continue;
 		case STATE_STOPPED:
 		    pthread_mutex_unlock(&ctx->mutex);
+#ifdef TEST_TIMING
+		    if(gets && writes) log_info("stream stopped, exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
+#else
 		    log_info("stopped before write");
+#endif
 		    ctx->audio_thread = 0;
 		    return 0;
 		default:
@@ -103,13 +134,28 @@ static void *audio_write_thread(void *a)
 	    }
 	    pthread_mutex_unlock(&ctx->mutex);
 	    if(i <= 0 || k != ctx->period_size * f2b) {
+/*
+eof detected, exiting: avg get=529 write=68784  16/44
+exiting: avg get=735 write=68280 
+blocked/total: writes=8/1307 reads=272/1961	
+exiting: avg get=354 write=7423   24/192
+blocked/total: writes=0/9481 reads=3871/28442
+*/
+#ifdef TEST_TIMING
+		if(gets && writes) log_info("eof detected, exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
+#else
 	   	log_info("eof detected, exiting");
+#endif
 		return 0;
 	    }
 	}
 
 	ctx->audio_thread = 0;
+#ifdef TEST_TIMING
+	if(gets && writes) log_info("exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
+#else
 	log_info("exiting");
+#endif
     return 0;	
 }
 

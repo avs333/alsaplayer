@@ -405,6 +405,7 @@ int alsa_start(playback_ctx *ctx)
 	    goto err_exit;		
 	}
 	ctx->format = &supp_formats[i];
+	ctx->rate_dec = 0;
 
 	for(k = 0, ret = 1; k <= 2 && ret; k++) {
 	    for(i = 0; i < n_supp_rates; i++) {
@@ -522,15 +523,44 @@ int alsa_start(playback_ctx *ctx)
         memset(priv->pcm_buf, 0, priv->buf_bytes);
 
 	memset(&swparams, 0, sizeof(swparams));
-	swparams.tstamp_mode = SNDRV_PCM_TSTAMP_NONE;
+
+	swparams.tstamp_mode = SNDRV_PCM_TSTAMP_ENABLE;
 	swparams.period_step = 1;
+
+#if 0
+	swparams.avail_min = ctx->period_size; 	/* by default */
+#else
+	/* wake up as soon as possible */
 	swparams.avail_min = 1;
+#endif
 	swparams.start_threshold = ctx->period_size;
-	swparams.stop_threshold = ctx->period_size * ctx->periods + 4;
-	swparams.xfer_align = ctx->period_size / 2;
+
+	swparams.boundary = ctx->period_size * ctx->periods;
+
+/* PCM is automatically stopped in SND_PCM_STATE_XRUN state when available frames is >= threshold. 
+  If the stop threshold is equal to boundary (also software parameter - sw_param) then automatic stop will be disabled 
+  (thus device will do the endless loop in the ring buffer). */
+#if 0
+	swparams.stop_threshold = ctx->period_size * (ctx->periods - 1); 
+#else
+	swparams.stop_threshold = swparams.boundary;
+#endif
+
+/* A portion of playback buffer is overwritten with silence when playback underrun is nearer than silence threshold.
+The special case is when silence size value is equal or greater than boundary. The unused portion of the ring buffer 
+(initial written samples are untouched) is filled with silence at start. Later, only just processed sample area is 
+filled with silence. Note: silence_threshold must be set to zero.  */
+#if 0
+	swparams.silence_size = swparams.boundary;
+	swparams.silence_threshold = 0;
+#else
 	swparams.silence_size = 0;
 	swparams.silence_threshold = 0;
-	swparams.boundary = ctx->period_size * ctx->periods;
+#endif
+
+	/* obsolete: xfer size need to be a multiple (of whatever) */
+/*	swparams.xfer_align = ctx->period_size / 2; */
+	swparams.xfer_align = 1;
 
 	if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_SW_PARAMS, &swparams) < 0) {
 	    log_err("falied to set sw parameters");
@@ -543,7 +573,7 @@ int alsa_start(playback_ctx *ctx)
             ret = LIBLOSSLESS_ERR_AU_SETCONF;
             goto err_exit;
         }
-
+#if 0
 	for(k = 0; k < ctx->periods; k++) {
 	    i = write(priv->pcm_fd, priv->pcm_buf, priv->buf_bytes);
 	    if(i != priv->buf_bytes) {
@@ -552,6 +582,7 @@ int alsa_start(playback_ctx *ctx)
 		goto err_exit;
 	    }
 	}
+#endif
 	log_info("setup complete");
 	return 0;
 
@@ -595,12 +626,26 @@ ssize_t alsa_write(playback_ctx *ctx, size_t count)
 
 	xf.buf = priv->pcm_buf;
 	xf.frames = ctx->period_size;
+	xf.result = 0;
 
 	while(written < ctx->period_size) {
+#if 1
+	    i = ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_STATUS, &pcm_stat);
+	    if(i) {
+		log_err("failed to obtain pcm status");
+		ctx->alsa_error = 1;
+		return 0;	
+	    } /* else log_info("hw/app=%ld/%ld avail/max=%ld/%ld", pcm_stat.hw_ptr, pcm_stat.appl_ptr, pcm_stat.avail, pcm_stat.avail_max); */
+#endif
 	    i = ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &xf);
 #if 0
-	    if(!i && ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_STATUS, &pcm_stat) == 0 && pcm_stat.hw_ptr == pcm_stat.appl_ptr) 
+	    if(!i && ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_STATUS, &pcm_stat) == 0 && pcm_stat.hw_ptr == pcm_stat.appl_ptr) {
 		log_info("underrun to occur: %ld %ld %ld %ld", pcm_stat.hw_ptr, pcm_stat.appl_ptr, pcm_stat.avail, pcm_stat.avail_max);
+		if(pcm_stat.avail > xf.frames) {
+		    i = ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_FORWARD, pcm_stat.avail - xf.frames);
+		    log_info("ioctl(SNDRV_PCM_IOCTL_FORWARD,%d)=%d", pcm_stat.avail - xf.frames, i);
+		}
+	    } 	
 #endif
 	    if(i != 0) {
 		switch(errno) {
@@ -677,10 +722,21 @@ void alsa_stop(playback_ctx *ctx)
 
 	if(!ctx || !ctx->alsa_priv) return;
 	priv = (alsa_priv *) ctx->alsa_priv;
-
 	if(priv->pcm_fd >= 0) {
 	    log_info("closing pcm stream");	
+#if 0
+	    if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_DRAIN) == 0) log_info("pcm_drain: success");	
 	    if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_DROP) == 0) log_info("pcm_drop: success");	
+	    if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_RESET) == 0) log_info("pcm_reset: success");	
+	    if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_XRUN) == 0) log_info("pcm_xrun: success");	
+	    { 
+		int flags;
+		    if((flags = fcntl(priv->pcm_fd, F_GETFL)) != -1) {
+			flags |= O_NONBLOCK;
+			fcntl(priv->pcm_fd, F_SETFL, flags);
+		    }
+	    }		
+#endif
 	    close(priv->pcm_fd);
 	    log_info("pcm stream closed");
 	}
