@@ -155,6 +155,10 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
                 else log_msg("service bound");
 			}
     	};
+
+    private void setTitle(String title) {
+        getSupportActionBar().setSubtitle(title);
+    }
     	
     	// On connection, obtain the service interface and setup screen according to current server state 
     	private ServiceConnection conn = null;
@@ -298,11 +302,11 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     			switch(result) {
     				case change_to_pause_btn:
     					if(pause_on_start) selItem.onItemClick(null, null, 0, 0); // dirty hack
-    					if(now_playing != null) getWindow().setTitle(now_playing);
+    					if(now_playing != null) setTitle(now_playing);
     					buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_pause));
     					break;
     				case change_to_play_btn:    					
-    					getWindow().setTitle(getString(R.string.strPaused));
+    					setTitle(getString(R.string.strPaused));
     					buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_play));
     					break;
     			}
@@ -351,7 +355,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         };
         View.OnClickListener onButtVPlus = new OnClickListener() {
         	public void onClick(View v) {
-        		v.startAnimation(AnimationUtils.loadAnimation(getApplicationContext(),  R.anim.blink));
+        		v.startAnimation(AnimationUtils.loadAnimation(getApplicationContext(), R.anim.blink));
 			(new SendSrvCmd()).execute(SendSrvCmd.cmd_vol_up); 
         	}	
         };
@@ -821,7 +825,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 						   					}	
 						       				curWindowTitle = (track_time < 3600) ? String.format("[%d:%02d] %s", track_time/60, track_time % 60, track_name) 
 						       					:	String.format("[%d:%02d:%02d] %s", track_time/3600, (track_time % 3600)/60, track_time % 60, track_name);
-						       				getWindow().setTitle(curWindowTitle);
+						       				setTitle(curWindowTitle);
 						       				pBar.setMax(track_time);
 						       				String sTime = (track_time < 3600) ? String.format("%d:%02d", track_time/60, track_time % 60) 
 													:	String.format("%d:%02d:%02d", track_time/3600, (track_time % 3600)/60, track_time % 60);
@@ -858,7 +862,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 									curWindowTitle = (track_time < 3600) ? String.format("[%d:%02d] %s", track_time/60, track_time % 60, track_name) 
 										:	String.format("[%d:%02d:%02d] %s", track_time/3600, (track_time % 3600)/60, track_time % 60, track_name);
 									
-									getWindow().setTitle(curWindowTitle);
+									setTitle(curWindowTitle);
 									pBar.setMax(track_time);
 									String sTime = (track_time < 3600) ? String.format("%d:%02d", track_time/60, track_time % 60) 
 											:	String.format("%d:%02d:%02d", track_time/3600, (track_time % 3600)/60, track_time % 60);
@@ -910,7 +914,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
               		  return;
               	  } else {
               	//	  if(pBar != null) pBar.setProgress(0);
-              		  getWindow().setTitle(curfile);
+              		  setTitle(curfile);
               		  ttu.shutdown();
               		  if(buttPause != null) buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_play));
               		  return;
@@ -932,12 +936,12 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			switch(msg.what) {
 				case 0:
 					buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_pause));
-					if(now_playing != null) getWindow().setTitle(now_playing);
+					if(now_playing != null) setTitle(now_playing);
 					break;
 				case 1:	
 					now_playing = curWindowTitle;
 					buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_play));
-					getWindow().setTitle(getString(R.string.strPaused));
+					setTitle(getString(R.string.strPaused));
 					break;
 			}
 		}
