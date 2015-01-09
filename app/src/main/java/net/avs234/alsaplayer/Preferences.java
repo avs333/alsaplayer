@@ -101,11 +101,14 @@ public class Preferences extends PreferenceActivity {
 		String s;
 		int i = 1;	
 		while((s = br.readLine()) != null) { 
-			if(s.startsWith("00")) {
+		/*	if(s.startsWith("00")) {
 				if(!s.contains("MultiMedia")) continue;
-			}
+			} */
+			if(!s.contains("playback ")) continue;
+			if(s.charAt(7) == '(') continue;
 			int end = s.substring(7).indexOf(":") + 7;
-			ents.add(Integer.toString(i) + s.substring(6, end));
+		//	ents.add(Integer.toString(i) + s.substring(6, end));
+			ents.add(s.substring(7,end));
 			vals.add(s.substring(0,5));
 			i++;
 		}

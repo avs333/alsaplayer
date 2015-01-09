@@ -124,7 +124,8 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
     size_t cur_map_len;		/* size of file chunk currently mapped */
     const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;
     void *mptr, *mend, *mm = MAP_FAILED;
-   
+    const playback_format_t *format;	  
+ 
     int ape_read(void *buff, int nbytes) 
     {
 	if(mptr + nbytes > mend) {
@@ -293,11 +294,12 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	    log_err("sorry, downsampling APE files not supported yet");
 	    goto done;
 	}
+	format = alsa_get_format(ctx);          /* format selected in alsa_start() */
 	
         update_track_time(env,obj,ctx->track_time);
 
 	bytes_to_write = 0;
-	bytesperblock = (ctx->format->phys_bits/8) * ctx->block_max;
+	bytesperblock = (format->phys_bits/8) * ctx->block_max;
 
 	/* Initialise the buffer */
 	bytesinbuffer = ape_read(inbuffer, INPUT_CHUNKSIZE);
@@ -366,7 +368,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 		/* Convert the output samples to WAV format and write to output file */
 		p = pcmbuf + bytes_to_write;
 
-		switch(ctx->format->fmt) {
+		switch(format->fmt) {
 
 		    case SNDRV_PCM_FORMAT_S24_3LE:
 			for(i = samplestoskip; i < blockstodecode; i++) {

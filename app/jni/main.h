@@ -56,12 +56,10 @@ typedef struct {
    } state;
    int  track_time;			/* set by decoder */
    int  channels, bps;			/* set by decoder */
-   int  samplerate;			/* playback samplerate, may be less than file_rate if the latter */
-   int  rate_dec;			/* is not supported by hw: samplerate = (file_rate >> rate_dec)  */
-   const playback_format_t *format;	/* set by alsa */
+   int  samplerate;			/* playback samplerate. set by decoder initially, but may be scaled down by 2^n by */
+   int  rate_dec;			/* alsa if it's not supported by hw, i.e.: samplerate = (file_samplerate >> rate_dec) */
    int  block_min, block_max;		/* set by decoder */
    int  written;			/* set by audio thread */	
-   int  periods, period_size;		/* set by alsa */
    pthread_mutex_t mutex, stop_mutex;
    pthread_t audio_thread;
    pthread_cond_t cond_stopped;		/* audio_play() is about to exit */
@@ -101,7 +99,10 @@ extern bool alsa_set_default_volume(playback_ctx *ctx);
 extern bool alsa_increase_volume(playback_ctx *ctx);
 extern bool alsa_decrease_volume(playback_ctx *ctx);
 extern void alsa_exit(playback_ctx *ctx);
+
 extern void *alsa_get_buffer(playback_ctx *ctx);
+extern int alsa_get_period_size(playback_ctx *ctx);
+extern const playback_format_t *alsa_get_format(playback_ctx *ctx);
 
 /* buffer.c */
 extern pcm_buffer *buffer_create(int size);

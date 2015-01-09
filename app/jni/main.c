@@ -58,7 +58,10 @@ static void thread_exit(int j) {
 static void *audio_write_thread(void *a) 
 {
     playback_ctx *ctx = (playback_ctx *) a;
-    int i, k, f2b = ctx->channels * ctx->format->phys_bits/8;
+    int i, k, f2b;
+    const playback_format_t *format = alsa_get_format(ctx);
+    void *pcm_buf = alsa_get_buffer(ctx);
+    int period_size = alsa_get_period_size(ctx);
 #if 0
     sigset_t set;
     struct sigaction sact = { .sa_handler = thread_exit,  };
@@ -69,12 +72,17 @@ static void *audio_write_thread(void *a)
     int  writes = 0, gets = 0;
     unsigned long long us_write = 0, us_get = 0;	
 #endif
-    void *pcm_buf = alsa_get_buffer(ctx);
 
 	if(!pcm_buf) {
 	    log_err("cannot obtain alsa buffer, exiting");	
 	    return 0;
 	}
+	if(!format) {
+	    log_err("cannot determine sample format, exiting");	
+	    return 0;
+	}
+	f2b = ctx->channels * (format->phys_bits/8);
+
 	log_info("entering");
 #if 0
 	sigaction(SIGUSR1, &sact, 0);
@@ -89,7 +97,7 @@ static void *audio_write_thread(void *a)
 #ifdef TEST_TIMING
 	    gettimeofday(&tstart,0);
 #endif
-	    k = buffer_get(ctx->buff, pcm_buf, ctx->period_size * f2b);
+	    k = buffer_get(ctx->buff, pcm_buf, period_size * f2b);
 #ifdef TEST_TIMING
 	    gettimeofday(&tstop,0);
 	    timersub(&tstop, &tstart, &tdiff);
@@ -133,7 +141,7 @@ static void *audio_write_thread(void *a)
 		    return 0;
 	    }
 	    pthread_mutex_unlock(&ctx->mutex);
-	    if(i <= 0 || k != ctx->period_size * f2b) {
+	    if(i <= 0 || k != period_size * f2b) {
 /*
 eof detected, exiting: avg get=529 write=68784  16/44
 exiting: avg get=735 write=68280 
@@ -236,7 +244,9 @@ int audio_stop(playback_ctx *ctx, int now)
 int audio_start(playback_ctx *ctx)
 {
     int k, ret;
-
+    int period_size;
+    const playback_format_t *format;
+	
 	if(!ctx) {
 	    log_err("no context to start");
 	    return -1;
@@ -254,9 +264,17 @@ int audio_start(playback_ctx *ctx)
 	ret = alsa_start(ctx);
 	if(ret != 0) goto err_init;
 	ctx->written = 0;
-	/* period_size is known after alsa_start() */
-	k = (ctx->period_size > (ctx->block_max >> ctx->rate_dec)) ? 
-		ctx->period_size : (ctx->block_max >> ctx->rate_dec);
+
+	/* format/period_size must be known after alsa_start() */
+	format = alsa_get_format(ctx);
+	if(!format) {
+	    log_err("cannot determine sample format");	
+	    goto err_init;
+	}	
+	period_size = alsa_get_period_size(ctx);
+
+	k = (period_size > (ctx->block_max >> ctx->rate_dec)) ? 
+		period_size : (ctx->block_max >> ctx->rate_dec);
 
 /* Say, (32k * 8 * 32/8 * 64) = 64M max, reasonable (much less normally). 
 Quick test for the last number for a 15-min 192/24 flac:
@@ -269,7 +287,7 @@ Nexus 5, period size 1536:
 Linux pc, period size 9648:
 [buffer_destroy] blocked/total: writes=0/44299 reads=18807/18807	  4
  */
-	ctx->buff = buffer_create(k * ctx->channels * (ctx->format->phys_bits/8) * 64);
+	ctx->buff = buffer_create(k * ctx->channels * (format->phys_bits/8) * 64);
 	if(!ctx->buff) {
 	    log_err("cannot create buffer");
 	    goto err_init;	

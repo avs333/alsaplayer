@@ -4,6 +4,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.util.Timer;
 import java.util.TimerTask;
+import eu.chainfire.libsuperuser.Shell;
 
 import android.app.Notification;
 import android.app.NotificationManager;
@@ -434,13 +435,14 @@ public class AlsaPlayerSrv extends Service {
 						}
 						if(files[cur_pos].endsWith(".flac") || files[cur_pos].endsWith(".FLAC")) {
 							cur_mode = MODE_ALSA;
-			              			// if(initAudioCard(cur_card,cur_device)) 
-							k = audioPlay(ctx, files[cur_pos], FORMAT_FLAC, times[cur_pos]+cur_start);
+							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
+							if(ctx == 0) k = 1;
+							else k = audioPlay(ctx, files[cur_pos], FORMAT_FLAC, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".ape") || files[cur_pos].endsWith(".APE")) {
 							cur_mode = MODE_ALSA;
-			              			// if(initAudioCard(cur_card,cur_device)) 
-							k = audioPlay(ctx, files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
-							log_msg("audioPlay exited, err=" + k);
+							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
+							if(ctx == 0) k = 1;
+							else k = audioPlay(ctx, files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
 			              		} else {
 							cur_mode = MODE_NONE;	
 							k = extPlay(files[cur_pos],times[cur_pos]+cur_start);
@@ -809,51 +811,45 @@ public class AlsaPlayerSrv extends Service {
 	//////////  We need read-write access to this device
 
 	public boolean checkSetDevicePermissions(int card, int device) {
-        java.lang.Process process = null;
-        DataOutputStream os = null;
-	int i;  
-                try {
-			File ctl = new File("/dev/snd/controlC" + card);
-			File pcm = new File("/dev/snd/pcmC" + card + "D" + device + "p");
-			
-			boolean okay = true;
+		int i;
+		File ctl, pcm, snd;
+		boolean okay = false;
 
-
-			if(ctl.canRead() && ctl.canWrite() && pcm.canRead() && pcm.canWrite()) {
-                		log_msg("neednt set device permissions");
-			    return true;	
-			}	
+       		ctl = new File("/dev/snd/controlC" + card);
+		pcm = new File("/dev/snd/pcmC" + card + "D" + device + "p");
+		if(ctl.canRead() && ctl.canWrite() && pcm.canRead() && pcm.canWrite()) {
+                	log_msg("needn't set device permissions");
+			return true;	
+		}	
+		snd = new File("/dev/snd");
+		try {
                 	log_msg("attempting to set device permissions for card " + card + ", device " + device);
-
-			for(i = 0; i < 10; i++) {
-				process = Runtime.getRuntime().exec("su");
-        	                os = new DataOutputStream(process.getOutputStream());
-                	        os.flush();
-	                	os.writeBytes("chmod 0666 " + ctl.toString() + "\n");
-				os.flush();
-		                os.writeBytes("chmod 0666 " + pcm.toString() + "\n");
-				os.flush();
-	                        os.writeBytes("exit\n");
-	                        os.flush();
-	                        process.waitFor();
-				process.destroy();			
-				os.close();	
-				if(ctl.canRead() && ctl.canWrite() && pcm.canRead() && pcm.canWrite()) break;
-				log_err("failed, once more!");
-				SystemClock.sleep(100);	
+			okay = Shell.SU.available();
+			if(!okay) {
+				log_msg("SU not available!");
+				return false;
 			}
-			if(i < 10) log_msg("permissions obtained");
-			else log_err("failed to obtain permissions");
-                } catch (Exception e) { 
-                	log_err("exception while setting device permissions: " + e.toString());	
-                	return false; 
-                } finally {
-                        try {
-                                if(os != null) os.close();
-                                process.destroy();
-                        } catch (Exception e) { }
-                }
-                return true;
-	}
+			Shell.SU.run(new String[] { 
+				"chcon u:object_r:device:s0 /dev/snd",	/* dir unreadable otherwise */
+				"chmod 0666 " + ctl.toString(), 
+				"chmod 0666 " + pcm.toString(), 
+				"chcon u:object_r:zero_device:s0 " + ctl.toString(),	/* hope they won't disable /dev/zero one day */
+				"chcon u:object_r:zero_device:s0 " + pcm.toString() });
 
+		} catch (Exception e) { 
+                        log_err("exception while setting device permissions: " + e.toString()); 
+                        return false; 
+                }
+
+       		ctl = new File("/dev/snd/controlC" + card);
+		pcm = new File("/dev/snd/pcmC" + card + "D" + device + "p");
+		okay = ctl.canRead() && ctl.canWrite() && pcm.canRead() && pcm.canWrite();
+
+		if(!okay) log_msg("SU failed");
+		else log_msg("SU succeeded");
+
+		return okay;
+		
+	   }
+	
 }

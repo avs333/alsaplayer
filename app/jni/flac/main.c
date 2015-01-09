@@ -369,7 +369,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
     size_t cur_map_len;	
     const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;    
     int bsz, stride;   
-	
+    const playback_format_t *format;	
 #ifdef ANDROID
 	file = (*env)->GetStringUTFChars(env,jfile,NULL);
 	if(!file) {
@@ -463,7 +463,8 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	if(ret) goto done;
 
 	scale = FLAC_OUTPUT_DEPTH - fc->bps;
-	phys_bps = ctx->format->phys_bits;  /* ctx->format selected in alsa_start() */
+	format = alsa_get_format(ctx);		/* format selected in alsa_start() */
+	phys_bps = format->phys_bits;
 	
 	pcmbuf = malloc(fc->channels * (phys_bps/8) * MAX_BLOCKSIZE);
 	if(!pcmbuf) {
@@ -509,7 +510,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    bsz = (fc->blocksize >> ctx->rate_dec);
 	    stride = (1 << ctx->rate_dec);	
 	    
-	    switch(ctx->format->fmt) {
+	    switch(format->fmt) {
 
 		case SNDRV_PCM_FORMAT_S32_LE:
 		    for(i = 0; i < fc->channels; i++) {

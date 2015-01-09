@@ -8,6 +8,10 @@ buildscript {
 }
 apply plugin: 'com.android.application'
 
+dependencies {
+    compile project(':libsuperuser')
+}
+
 repositories {
     jcenter()
 }

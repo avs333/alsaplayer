@@ -70,6 +70,8 @@ typedef struct _alsa_priv {
     struct nvset *nv_vol_digital[n_supp_formats];
     struct ctl_elem *ctls;	
     /* per track params */
+    const playback_format_t *format;	
+    int  periods, period_size;
     int  pcm_fd;
     void *pcm_buf;
     int  buf_bytes;
@@ -131,6 +133,7 @@ void alsa_exit(playback_ctx *ctx)
 	free(priv);
 	ctx->alsa_priv = 0;
 }
+
 
 #define param_to_interval(p,n)	(&(p->intervals[n - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL]))
 #define param_to_mask(p,n)	(&(p->masks[n - SNDRV_PCM_HW_PARAM_FIRST_MASK]))
@@ -404,7 +407,7 @@ int alsa_start(playback_ctx *ctx)
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;		
 	}
-	ctx->format = &supp_formats[i];
+	priv->format = &supp_formats[i];
 	ctx->rate_dec = 0;
 
 	for(k = 0, ret = 1; k <= 2 && ret; k++) {
@@ -446,10 +449,10 @@ int alsa_start(playback_ctx *ctx)
 	}
 	log_info("pcm opened");
 
-	setup_hwparams(params, ctx->format->fmt, ctx->samplerate, ctx->channels, 0, 0);
+	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, 0, 0);
 
- 	log_info("Trying: format=%s rate=%d channels=%d bps=%d (phys=%d)", ctx->format->str, 
-	    ctx->samplerate, ctx->channels, ctx->bps, ctx->format->phys_bits);	
+ 	log_info("Trying: format=%s rate=%d channels=%d bps=%d (phys=%d)", priv->format->str, 
+	    ctx->samplerate, ctx->channels, ctx->bps, priv->format->phys_bits);	
 
 	if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_HW_REFINE, params) != 0) {
 	    log_info("refine failed");
@@ -458,7 +461,7 @@ int alsa_start(playback_ctx *ctx)
 	}
 	/* sanity check */
 	i = param_to_interval(params, SNDRV_PCM_HW_PARAM_SAMPLE_BITS)->max;
-	if(i != ctx->format->phys_bits ||
+	if(i != priv->format->phys_bits ||
 		i != param_to_interval(params, SNDRV_PCM_HW_PARAM_SAMPLE_BITS)->min) {
 	    log_info("bogie refine");
      	    ret = LIBLOSSLESS_ERR_AU_SETUP;
@@ -472,48 +475,48 @@ int alsa_start(playback_ctx *ctx)
 	log_info("Period size: min=%d\tmax=%d", persz_min, persz_max);
 	log_info("    Periods: min=%d\tmax=%d", periods_min, periods_max);
 
-	ctx->periods = periods_max;
-	ctx->period_size = persz_max;
+	priv->periods = periods_max;
+	priv->period_size = persz_max;
 
-	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, ctx->period_size);
-	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS, ctx->periods);
+	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->period_size);
+	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS, priv->periods);
 
 	/* Try to obtain the largest buffer possible keeping in mind 
 	   that ALSA always tries to set minimum latency */
 
-	if(ctx->periods > 16) ctx->periods = 16; 
+	if(priv->periods > 32) priv->periods = 32; 
 
 #define NSTEPS	8
 
 	i = (persz_max - persz_min) / NSTEPS; 
 
 	while(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) < 0) {
-	    ctx->period_size -= i;
-	    if(ctx->period_size < persz_min || i == 0) {
-		ctx->period_size = persz_max;
-		ctx->periods >>= 1;	
-	    } else if(ctx->period_size - i < persz_min && (i/NSTEPS) > 0) { /* Refine last step */
+	    priv->period_size -= i;
+	    if(priv->period_size < persz_min || i == 0) {
+		priv->period_size = persz_max;
+		priv->periods >>= 1;	
+	    } else if(priv->period_size - i < persz_min && (i/NSTEPS) > 0) { /* Refine last step */
 		log_info("refine");
-		ctx->period_size += i; /* undo */	
+		priv->period_size += i; /* undo */	
 		i /= NSTEPS;
-		ctx->period_size -= i;		
+		priv->period_size -= i;		
 	    }
-	    if(ctx->periods < periods_min) {
+	    if(priv->periods < periods_min) {
 		log_err("cannot set hw parameters");
 		ret = LIBLOSSLESS_ERR_AU_SETCONF;
 		goto err_exit;
 	    }
-	    setup_hwparams(params, ctx->format->fmt, ctx->samplerate, ctx->channels, ctx->periods, 0);
-	    param_set_range(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, ctx->period_size, persz_max);		
-	    log_info("retrying with period_size %d periods %d", ctx->period_size, ctx->periods);	
+	    setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, priv->periods, 0);
+	    param_set_range(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->period_size, persz_max);		
+	    log_info("retrying with period_size %d periods %d", priv->period_size, priv->periods);	
 	}
-	ctx->period_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
+	priv->period_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
 	priv->setup_info = params->info;
 
 	log_info("selecting period size %d, periods %d [hw_info=0x%08X]",
-		ctx->period_size, ctx->periods, priv->setup_info);
+		priv->period_size, priv->periods, priv->setup_info);
 
-	priv->buf_bytes = ctx->period_size * ctx->channels * ctx->format->phys_bits/8;
+	priv->buf_bytes = priv->period_size * ctx->channels * priv->format->phys_bits/8;
 	priv->pcm_buf = malloc(priv->buf_bytes);
 	if(!priv->pcm_buf) {
 	    log_err("no memory for buffer");
@@ -528,20 +531,20 @@ int alsa_start(playback_ctx *ctx)
 	swparams.period_step = 1;
 
 #if 0
-	swparams.avail_min = ctx->period_size; 	/* by default */
+	swparams.avail_min = priv->period_size; 	/* by default */
 #else
 	/* wake up as soon as possible */
 	swparams.avail_min = 1;
 #endif
-	swparams.start_threshold = ctx->period_size;
+	swparams.start_threshold = priv->period_size;
 
-	swparams.boundary = ctx->period_size * ctx->periods;
+	swparams.boundary = priv->period_size * priv->periods;
 
 /* PCM is automatically stopped in SND_PCM_STATE_XRUN state when available frames is >= threshold. 
   If the stop threshold is equal to boundary (also software parameter - sw_param) then automatic stop will be disabled 
   (thus device will do the endless loop in the ring buffer). */
 #if 0
-	swparams.stop_threshold = ctx->period_size * (ctx->periods - 1); 
+	swparams.stop_threshold = priv->period_size * (priv->periods - 1); 
 #else
 	swparams.stop_threshold = swparams.boundary;
 #endif
@@ -551,6 +554,7 @@ The special case is when silence size value is equal or greater than boundary. T
 (initial written samples are untouched) is filled with silence at start. Later, only just processed sample area is 
 filled with silence. Note: silence_threshold must be set to zero.  */
 #if 0
+	/* error on codeaurora */
 	swparams.silence_size = swparams.boundary;
 	swparams.silence_threshold = 0;
 #else
@@ -559,7 +563,7 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 #endif
 
 	/* obsolete: xfer size need to be a multiple (of whatever) */
-/*	swparams.xfer_align = ctx->period_size / 2; */
+/*	swparams.xfer_align = priv->period_size / 2; */
 	swparams.xfer_align = 1;
 
 	if(ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_SW_PARAMS, &swparams) < 0) {
@@ -574,7 +578,7 @@ filled with silence. Note: silence_threshold must be set to zero.  */
             goto err_exit;
         }
 #if 0
-	for(k = 0; k < ctx->periods; k++) {
+	for(k = 0; k < priv->periods; k++) {
 	    i = write(priv->pcm_fd, priv->pcm_buf, priv->buf_bytes);
 	    if(i != priv->buf_bytes) {
 		log_err("cannot fill initial buffer");
@@ -603,7 +607,6 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 ssize_t alsa_write(playback_ctx *ctx, size_t count)
 {
     alsa_priv *priv;
-    const playback_format_t *pfmt;
     int i, written = 0;
     struct snd_xferi xf;
     struct snd_pcm_status pcm_stat;
@@ -613,22 +616,21 @@ ssize_t alsa_write(playback_ctx *ctx, size_t count)
 	    return 0;
 	}
 	priv = (alsa_priv *) ctx->alsa_priv;	
-	pfmt = ctx->format;
 	
-	if(count > ctx->period_size) {
-	    log_err("frames count %d larger than period size %d", (int) count, ctx->period_size);
-	    count = ctx->period_size;
-	} else if(count < ctx->period_size) {
+	if(count > priv->period_size) {
+	    log_err("frames count %d larger than period size %d", (int) count, priv->period_size);
+	    count = priv->period_size;
+	} else if(count < priv->period_size) {
 	    log_info("short buffer, must be EOF");	
-	    memset(priv->pcm_buf + count * ctx->channels * pfmt->phys_bits/8, 0, 
-			(ctx->period_size - count) * ctx->channels * pfmt->phys_bits/8);
+	    memset(priv->pcm_buf + count * ctx->channels * priv->format->phys_bits/8, 0, 
+			(priv->period_size - count) * ctx->channels * priv->format->phys_bits/8);
 	}	
 
 	xf.buf = priv->pcm_buf;
-	xf.frames = ctx->period_size;
+	xf.frames = priv->period_size;
 	xf.result = 0;
 
-	while(written < ctx->period_size) {
+	while(written < priv->period_size) {
 #if 1
 	    i = ioctl(priv->pcm_fd, SNDRV_PCM_IOCTL_STATUS, &pcm_stat);
 	    if(i) {
@@ -679,11 +681,11 @@ ssize_t alsa_write(playback_ctx *ctx, size_t count)
     return written;
 
 #if 0
-	for(k = 0, written = 0; k < ctx->periods; k++) {
+	for(k = 0, written = 0; k < priv->periods; k++) {
 	    while(written < count) {
-		i = write(priv->pcm_fd, priv->pcm_buf + k * ctx->period_size * ctx->channels * pfmt->phys_bits/8,
-			ctx->period_size * ctx->channels * pfmt->phys_bits/8);
-		if(i != ctx->period_size * ctx->channels * pfmt->phys_bits/8) {
+		i = write(priv->pcm_fd, priv->pcm_buf + k * priv->period_size * ctx->channels * priv->format->phys_bits/8,
+			priv->period_size * ctx->channels * priv->format->phys_bits/8);
+		if(i != priv->period_size * ctx->channels * priv->format->phys_bits/8) {
 		    switch(errno) {
 			case EINTR:
 			case EAGAIN:
@@ -701,7 +703,7 @@ ssize_t alsa_write(playback_ctx *ctx, size_t count)
 			    log_info("unhandled error %d in WRITEI_FRAMES: %s (%d)", i, strerror(errno), errno);
 			    return 0;		
 		    }
-		} else written += ctx->period_size;
+		} else written += priv->period_size;
 	    }
 	}
 #endif
@@ -715,6 +717,25 @@ void *alsa_get_buffer(playback_ctx *ctx)
 	if(!priv) return 0;
     return priv->pcm_buf;	
 }
+
+int alsa_get_period_size(playback_ctx *ctx)
+{
+    alsa_priv *priv;	
+	if(!ctx) return 0;
+	priv = (alsa_priv *) ctx->alsa_priv;
+	if(!priv) return 0;
+    return priv->period_size; 	
+}
+
+const playback_format_t *alsa_get_format(playback_ctx *ctx)
+{
+    alsa_priv *priv;	
+	if(!ctx) return 0;
+	priv = (alsa_priv *) ctx->alsa_priv;
+	if(!priv) return 0;
+    return priv->format;  	
+}
+
 
 void alsa_stop(playback_ctx *ctx) 
 {
