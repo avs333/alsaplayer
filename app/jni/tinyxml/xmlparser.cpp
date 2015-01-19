@@ -113,12 +113,17 @@ extern "C" struct nvset *xml_mixp_find_control_set(void *xml, const char *path)
 ////////////////////////////////////////////////////////////////////////
 
 class DeviceXML : public XMLDocument {
+	bool card_only;		/* used only to detect if specific devices for the card are found in xml */
 	XMLElement *card_root;
 	XMLElement *dev_root;
     public:
-	DeviceXML(const char *file, const char *card, const char *device); 
+	DeviceXML(const char *file, const char *card, const char *device); /* device = 0 means card_only */
 	bool is_valid() { return (dev_root != 0); }
+	bool is_valid(const char *dev_str);
+	bool is_card_only() { return card_only; }
 	bool is_builtin() { return card_root && (card_root->Attribute("builtin", "1") != 0); }
+	bool is_offload() { return card_root && dev_root && (dev_root->Attribute("offload", "1") != 0); }
+	bool is_mmapped() { return card_root && dev_root && (dev_root->Attribute("mmap", "1") != 0); }
 	XMLElement *get_card_root() { return card_root; };
 	XMLElement *get_dev_root() { return dev_root; };
 	struct nvset *get_controls(XMLElement *e);
@@ -126,12 +131,14 @@ class DeviceXML : public XMLDocument {
 
 DeviceXML::DeviceXML(const char *file, const char *card, const char *device) 
 {
+    XMLElement *cards;	
+
     card_root = 0; 
     dev_root = 0;
+    card_only = false;
+
     if(LoadFile(file) != 0) return;
-    	
-    XMLElement *cards;	
-    
+
     for(cards = FirstChildElement(); cards; cards = cards->NextSiblingElement()) 
 	if(strcmp(cards->Name(), "cards") == 0) break;
     if(!cards) return;
@@ -150,12 +157,25 @@ DeviceXML::DeviceXML(const char *file, const char *card, const char *device)
 		if(result == 0) break;
 	}
     if(!card_root) return;
-
+    if(!device)	{
+	card_only = true;
+	dev_root = card_root->FirstChildElement();
+	return;
+    }
     for(dev_root = card_root->FirstChildElement(); dev_root; dev_root = dev_root->NextSiblingElement()) 
 	if(strcmp(dev_root->Name(), "device") == 0 && dev_root->Attribute("id", device)) break;
 }
 
-struct nvset *DeviceXML::get_controls(XMLElement *e) {
+bool DeviceXML::is_valid(const char *dev_str) 
+{
+    XMLElement *dev = 0;
+    for(dev = dev_root; dev; dev = dev->NextSiblingElement())
+	if(strcmp(dev->Name(), "device") == 0 && dev->Attribute("id", dev_str)) break;
+    return (dev != 0);
+}
+
+struct nvset *DeviceXML::get_controls(XMLElement *e) 
+{
     XMLElement *x;
     struct nvset *first = 0, *nv;
     const char *name, *value, *min, *max;	
@@ -174,20 +194,29 @@ struct nvset *DeviceXML::get_controls(XMLElement *e) {
 	    if(min && max) {
 		nv->min = atoi(min);
 		nv->max = atoi(max);
-	    }
+	    } else {
+		nv->min = 0;
+		nv->max = 0;
+	    }	
 	    nv->name = name;
 	    nv->value = value;
 	    nv->next = 0;
 	}
-    }	
+    }
     return first;
 }
 
 extern "C" void *xml_dev_open(const char *xml_path, const char *card, int device)
 {
     char dev_str[16];
-    sprintf(dev_str, "%d", device);
-    DeviceXML *xml = new DeviceXML(xml_path, card, dev_str);
+    const char *dev;	
+
+    if(device >= 0) {
+	sprintf(dev_str, "%d", device);
+	dev = dev_str;
+    } else dev = 0;	/* matches any device */
+
+    DeviceXML *xml = new DeviceXML(xml_path, card, dev);
     if(!xml->is_valid()) {
 	delete xml;
 	return 0;
@@ -207,10 +236,31 @@ extern "C" int xml_dev_is_builtin(void *xml)
     return (int) ((DeviceXML *) xml)->is_builtin();
 }
 
+extern "C" int xml_dev_is_offload(void *xml)
+{
+    if(!xml) return 0;
+    return (int) ((DeviceXML *) xml)->is_offload();
+}
+
+extern "C" int xml_dev_is_mmapped(void *xml)
+{
+    if(!xml) return 0;
+    return (int) ((DeviceXML *) xml)->is_mmapped();
+}
+
+extern "C" int xml_dev_exists(void *xml, int device) 
+{
+    char dev_str[16];
+	if(!xml) return 0;
+	sprintf(dev_str, "%d", device);
+    return (int) ((DeviceXML *) xml)->is_valid(dev_str);
+}
+
+
 extern "C" struct nvset *xml_dev_find_ctls(void *xml, const char *name, const char *value)
 {
     DeviceXML *m = (DeviceXML *) xml; 	
-    if(!m || !m->is_valid()) return 0;	
+    if(!m || !m->is_valid() || m->is_card_only()) return 0;	
     XMLElement *e, *e1, *e2;
     for(e = m->get_dev_root()->FirstChildElement(); e; e = e->NextSiblingElement()) {
 	if(strcmp(e->Name(), "path") == 0 && e->Attribute("name", name)

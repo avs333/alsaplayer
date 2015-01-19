@@ -96,26 +96,36 @@ public class Preferences extends PreferenceActivity {
 	device.setTitle(R.string.strDeviceName);
 	device.setKey("device");
 	try {
-		FileReader fr = new FileReader("/proc/asound/pcm");
+
+/*		FileReader fr = new FileReader("/proc/asound/pcm");
 		BufferedReader br = new BufferedReader(fr);
 		String s;
 		int i = 1;	
 		while((s = br.readLine()) != null) { 
-		/*	if(s.startsWith("00")) {
-				if(!s.contains("MultiMedia")) continue;
-			} */
 			if(!s.contains("playback ")) continue;
 			if(s.charAt(7) == '(') continue;
 			int end = s.substring(7).indexOf(":") + 7;
-		//	ents.add(Integer.toString(i) + s.substring(6, end));
 			ents.add(s.substring(7,end));
 			vals.add(s.substring(0,5));
 			i++;
+		} */
+		int i;
+		String s;
+		log_msg("calling AlsaPlayerSrv.getDevices()");
+		String devices[] = AlsaPlayerSrv.getDevices();
+		log_msg("devices.length=" + devices.length);
+		for(i = 0; i < devices.length; i++) {
+			s = devices[i];
+			log_msg("found " + s);
+			ents.add(s.substring(7));
+			vals.add(s.substring(0,5));
 		}
-	} catch (Exception e) {}
+	} catch (Exception e) { log_msg("exception!"); e.printStackTrace(); }
+
 	device.setEntries(ents.toArray(new String[ents.size()]));
 	device.setEntryValues(vals.toArray(new String[vals.size()]));
 	devsCat.addPreference(device);
+
 	if(device.getValue() == null) {
 		log_msg("value not set, setting zero");
 		device.setValueIndex(0);

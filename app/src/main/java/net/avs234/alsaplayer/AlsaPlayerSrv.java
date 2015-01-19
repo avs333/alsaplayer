@@ -41,7 +41,7 @@ TODO:
 public class AlsaPlayerSrv extends Service {
 	
 	static {
-		System.loadLibrary("lossless");
+	    System.loadLibrary("lossless");
 	}
 	
 	public static native int 	audioInit(int ctx, int card, int device);	
@@ -57,10 +57,15 @@ public class AlsaPlayerSrv extends Service {
 	
 	public static native int	audioPlay(int ctx, String file, int format, int start);
 	public static native int []	extractFlacCUE(String file);
+	public static native String []  getAlsaDevices();
+
+	public static native boolean	isUsbCard(int card); 
+	public static native boolean	isOffloadDevice(int card, int device); 
 	
 	public static native boolean	libInit(int sdk);
 	public static native boolean	libExit();
-		
+	
+
 	// errors returned by xxxPlay functions
 	public static final int LIBLOSSLESS_ERR_NOCTX = 1;
 	public static final int LIBLOSSLESS_ERR_INV_PARM  =  2;
@@ -699,7 +704,7 @@ public class AlsaPlayerSrv extends Service {
 	        	log_err("cannot initialize atrack library");
 	        	stopSelf();
 	        }
-        AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
+		AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
 	}
 		
 	@Override
@@ -808,48 +813,115 @@ public class AlsaPlayerSrv extends Service {
 	}
 
 	////////////////////////////////////////////////////
-	//////////  We need read-write access to this device
+	//////////  Access-related stuff.
 
 	public boolean checkSetDevicePermissions(int card, int device) {
-		int i;
-		File ctl, pcm, snd;
-		boolean okay = false;
 
-       		ctl = new File("/dev/snd/controlC" + card);
-		pcm = new File("/dev/snd/pcmC" + card + "D" + device + "p");
-		if(ctl.canRead() && ctl.canWrite() && pcm.canRead() && pcm.canWrite()) {
-                	log_msg("needn't set device permissions");
-			return true;	
-		}	
-		snd = new File("/dev/snd");
-		try {
-                	log_msg("attempting to set device permissions for card " + card + ", device " + device);
+		boolean okay;
+
+		// Setup control device first: it's needed for isOffloadDevice() call
+		// required to determine playback device name
+
+		String devpath = "/dev/snd/controlC" + card;
+       		File dev = new File(devpath);
+
+		if(!dev.canRead() || !dev.canWrite()) {
+			try {
+				okay = Shell.SU.available();
+				if(!okay) {
+	                                log_msg("SU not available!");
+	                                return false;
+	                        }
+				log_msg("Trying to prepare " + devpath);
+				Shell.SU.run(new String[] {
+					"chcon u:object_r:device:s0 /dev/snd",
+					"chmod 0666 " + devpath,
+					"chcon u:object_r:zero_device:s0 " + devpath
+				});
+				dev = new File(devpath);
+				okay = dev.canRead() && dev.canWrite();
+				if(!okay) {
+					log_msg("Failed to setup " + devpath);
+					return false;
+				} 
+				log_msg("Device " + devpath + " prepared" );
+			} catch (Exception e) {
+	                        log_err("exception while setting control device permissions: " + e.toString()); 
+        	                return false; 
+			}
+		} else log_msg("No need to prepare " + devpath);
+
+		// Now, playback device.
+
+		boolean offline = isOffloadDevice(card, device);
+
+		devpath = offline ? "/dev/snd/comprC" : "/dev/snd/pcmC";
+		devpath += card;
+		devpath += "D";
+		devpath += device;
+		if(!offline) devpath += "p";
+		dev = new File(devpath);
+
+		if(dev.canRead() && dev.canWrite()) {
+			log_msg("No need to prepare " + devpath);
+			return true;
+		}
+		try {	
 			okay = Shell.SU.available();
 			if(!okay) {
 				log_msg("SU not available!");
 				return false;
 			}
-			Shell.SU.run(new String[] { 
-				"chcon u:object_r:device:s0 /dev/snd",	/* dir unreadable otherwise */
-				"chmod 0666 " + ctl.toString(), 
-				"chmod 0666 " + pcm.toString(), 
-				"chcon u:object_r:zero_device:s0 " + ctl.toString(),	/* hope they won't disable /dev/zero one day */
-				"chcon u:object_r:zero_device:s0 " + pcm.toString() });
+			log_msg("Trying to prepare " + devpath);
+			Shell.SU.run(new String[] {
+				"chmod 0666 " + devpath,
+				"chcon u:object_r:zero_device:s0 " + devpath
+			});
+		} catch (Exception e) {
+			log_err("exception while setting audio device permissions: " + e.toString());
+			return false;
+		}
 
-		} catch (Exception e) { 
-                        log_err("exception while setting device permissions: " + e.toString()); 
-                        return false; 
-                }
+		dev = new File(devpath);
+		okay = dev.canRead() && dev.canWrite();
 
-       		ctl = new File("/dev/snd/controlC" + card);
-		pcm = new File("/dev/snd/pcmC" + card + "D" + device + "p");
-		okay = ctl.canRead() && ctl.canWrite() && pcm.canRead() && pcm.canWrite();
-
-		if(!okay) log_msg("SU failed");
-		else log_msg("SU succeeded");
+		if(!okay) log_msg("Failed to prepare " + devpath);
+		else log_msg("Device " + devpath + " prepared");
 
 		return okay;
-		
-	   }
+	}
+
+	public static String [] getDevices() {
+
+	    int card = 0;
+	    boolean okay;
+
+	    /* make sure that controls for all currently connected devices are prepared */
+
+	    while(true) {	
+		File ctl = new File("/dev/snd/controlC" + card);
+		if(!ctl.exists()) break;
+		card++;
+		if(ctl.canRead() && ctl.canWrite()) continue;
+		try {
+		    okay = Shell.SU.available();
+		    if(!okay) {
+			// Log.i("AlsaPlayerSrv", "SU not available!"); // log_msg can't be used here
+			break;
+		    }
+		    Shell.SU.run(new String[] {
+			"chmod 0666 " + ctl.toString(),
+			"chcon u:object_r:zero_device:s0 " + ctl.toString()
+		    });	
+		} catch(Exception e) {
+		    return null;	
+		}
+	    }
+
+	    /* now it's safe to call this function */
+
+	    return getAlsaDevices();
+
+	}
 	
 }

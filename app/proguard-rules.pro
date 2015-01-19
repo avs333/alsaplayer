@@ -18,4 +18,5 @@
 
 -keep class net.avs234.alsaplayer.AlsaPlayerSrv {
     void updateTrackLen(int);
+    boolean isUsbCard(int);
 }

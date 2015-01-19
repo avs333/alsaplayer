@@ -339,14 +339,14 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		if(!priv->nv_vol_analog[k]) priv->nv_vol_analog[k] = xml_dev_find_ctls(priv->xml_dev, "analog_volume", 0);
 		if(priv->nv_vol_analog[k]) {
 		    priv->vol_analog[k] = atoi(priv->nv_vol_analog[k]->value);	/* set to default analog value */
-		    log_info("found analog volume controls for fmt=%s: %s %d/%d/%d", supp_formats[k].str, 
+		    log_info("found analog volume controls for fmt=%s: %s %d/%d/%d [...]", supp_formats[k].str, 
 			priv->nv_vol_analog[k]->name, priv->vol_analog[k], priv->nv_vol_analog[k]->min, priv->nv_vol_analog[k]->max);
 		}
 	    	priv->nv_vol_digital[k] = xml_dev_find_ctls(priv->xml_dev, "digital_volume", supp_formats[k].str);
 		if(!priv->nv_vol_digital[k]) priv->nv_vol_digital[k] = xml_dev_find_ctls(priv->xml_dev, "digital_volume", 0);
 		if(priv->nv_vol_digital[k]) {
 		    priv->vol_digital[k] = atoi(priv->nv_vol_digital[k]->value); /* set to default digital value */
-		    log_info("found digital volume controls for fmt=%s: %s %d/%d/%d", supp_formats[k].str,
+		    log_info("found digital volume controls for fmt=%s: %s %d/%d/%d [...]", supp_formats[k].str,
 			priv->nv_vol_digital[k]->name, priv->vol_digital[k], priv->nv_vol_digital[k]->min, priv->nv_vol_digital[k]->max);
 		}
 	    }
@@ -1054,5 +1054,94 @@ static void free_mixer_controls(playback_ctx *ctx)
 	}
 	priv->ctls = 0;
 }
+
+#ifdef ANDROID
+
+
+static int get_card_info(int card, struct snd_ctl_card_info *info)
+{
+    int fd, k;
+    char tmp[32];
+
+	sprintf(tmp, "/dev/snd/controlC%d", card);
+	fd = open(tmp, O_RDONLY);
+	if(fd < 0) {
+	    log_err("failed to open card %d", card);
+	    return 0;
+	}
+	k = ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, info);
+	close(fd);
+	if(k != 0) { 
+	    log_err("failed to get info for card %d", card);
+	    return 0;
+	}
+    return 1;
+}
+
+int alsa_is_usb_card(JNIEnv *env, jobject obj, int card) 
+{
+    struct snd_ctl_card_info info;
+    if(!get_card_info(card, &info)) return 0;
+    return strcmp((char *)info.driver, "USB-Audio") == 0;
+}
+
+int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device)
+{
+    void *xml = 0;
+    struct snd_ctl_card_info info;
+    int ret;
+	if(!get_card_info(card, &info)) return 0;
+	xml = xml_dev_open(cards_file, (char *) info.name, device);
+	if(!xml) return 0;
+	ret = xml_dev_is_offload(xml);
+	xml_dev_close(xml);
+    return ret;	
+}
+
+#define SNDRV_CARDS 32	/* include/sound/core.h */
+
+/* Returns the list of cards/devices that should appear in preferences dialog.
+   These are all devices with playback capabilities except for those with card_name 
+   found in cards.xml, but dev_id missing there. */
+
+int alsa_get_devices(char ***dev_names)
+{
+    int fd, i, k, n;	
+    void *xml = 0;
+    struct snd_ctl_card_info info;
+    struct snd_pcm_info pcm_info;
+    char tmp[128], *c, **devs;
+    	
+	for(k = 0, n = 0, devs = 0; k < SNDRV_CARDS; k++) {
+	    sprintf(tmp, "/dev/snd/controlC%d", k);
+	    fd = open(tmp, O_RDONLY);
+	    if(fd < 0) break;
+	    if(ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info) != 0) break;
+	    xml = xml_dev_open(cards_file, (char *) info.name, -1);
+	    i = -1;
+	    while(1) {
+		if(ioctl(fd, SNDRV_CTL_IOCTL_PCM_NEXT_DEVICE, &i) || i == -1) break;
+		memset(&pcm_info, 0, sizeof(struct snd_pcm_info));
+		pcm_info.device = i;
+		pcm_info.stream = SNDRV_PCM_STREAM_PLAYBACK;
+		if(ioctl(fd, SNDRV_CTL_IOCTL_PCM_INFO, &pcm_info) == 0) {
+		    if(xml && !xml_dev_exists(xml, i)) continue;
+		    n++;
+		    devs = (char **) realloc(devs, n * sizeof(char *));
+		    sprintf(tmp, "%02d-%02d: %s", k, i, (char *)pcm_info.id);
+		    c = strstr(tmp+8, " (*)"); /* trim QC devices a bit */
+		    if(c) *c = 0;
+		    devs[n-1] = strdup(tmp);
+	
+		}
+	    }	
+	    if(xml) xml_dev_close(xml);
+	    close(fd);	
+	}
+	if(n) *dev_names = devs;
+
+    return n;	
+}
+#endif
 
 

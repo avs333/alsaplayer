@@ -282,10 +282,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	    				} else if(srv.pause()) return change_to_play_btn;
     						break;
     					case cmd_prev:
-					//	if(!update_device_settings()) break;
     						srv.play_prev(); break;
     	    			case cmd_next:		
-					//	if(!update_device_settings()) break;
     	    				srv.play_next(); break;
     	    			case cmd_vol_up:	
     						srv.inc_vol(); break;
@@ -513,7 +511,6 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         					Toast.makeText(getApplicationContext(), R.string.strSrvFail, Toast.LENGTH_SHORT).show();
         					return false;
     				}
-			// if(!update_device_settings()) return false;
     			if(!srv.play(k,start)) {
     				Toast.makeText(getApplicationContext(), R.string.strSrvFail, Toast.LENGTH_SHORT).show();
     				log_err("failed to start playing <contents>"); 
@@ -626,7 +623,6 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	        						return;
 	        					}
 	    	        		}
-					//	if(update_device_settings()) {
     							if(!srv.play(track-first_file_pos,seconds)) {
     								Toast.makeText(getApplicationContext(), R.string.strSrvFail, Toast.LENGTH_SHORT).show();
     								log_err("failed to start playing <bookmarked file>"); 
@@ -724,7 +720,6 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     							playContents(cdr,files,null,null,curpos,curtime);
     						}
     					} else {
-					//	if(update_device_settings()) {
     							if(!srv.play(curpos,curtime)){
     								Toast.makeText(getApplicationContext(), R.string.strSrvFail, Toast.LENGTH_SHORT).show();
 	    							log_err("failed to start playing <single file>"); 

@@ -502,6 +502,25 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfil
 #error "CLASS_NAME not set in Android.mk"
 #endif
 
+/* For simplicity, a java string array is returned rather than array of structures. 
+   See alsa_get_devices() for details. */
+
+static jobjectArray get_devices(JNIEnv *env, jobject obj)
+{
+    int i, n = 0;
+    jobjectArray ja = 0;
+    char **devs;
+	n = alsa_get_devices(&devs);
+	if(!n) return 0;
+	ja = (*env)->NewObjectArray(env, n, (*env)->FindClass(env, "java/lang/String"), 0);
+	for(i = 0; i < n; i++) {
+	    (*env)->SetObjectArrayElement(env, ja, i, (*env)->NewStringUTF(env, devs[i]));
+	    free(devs[i]);
+	}
+	free(devs);
+    return ja;
+}
+
 static jboolean libinit(JNIEnv *env, jobject obj, jint sdk) 
 {
     return true;
@@ -562,6 +581,9 @@ static JNINativeMethod methods[] = {
  { "audioIncreaseVolume", "(I)Z", (void *) audio_increase_volume },
  { "audioPlay", "(ILjava/lang/String;II)I", (void *) audio_play },
  { "extractFlacCUE", "(Ljava/lang/String;)[I", (void *) extract_flac_cue },
+ { "getAlsaDevices", "()[Ljava/lang/String;", (void *) get_devices },
+ { "isUsbCard", "(I)Z", (void *) alsa_is_usb_card },
+ { "isOffloadDevice", "(II)Z", (void *) alsa_is_offload_device },
  { "libInit", "(I)Z", (void *) libinit },
  { "libExit", "()Z", (void *) libexit },
 };

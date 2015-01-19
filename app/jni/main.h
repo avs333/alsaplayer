@@ -103,6 +103,11 @@ extern void alsa_exit(playback_ctx *ctx);
 extern void *alsa_get_buffer(playback_ctx *ctx);
 extern int alsa_get_period_size(playback_ctx *ctx);
 extern const playback_format_t *alsa_get_format(playback_ctx *ctx);
+#ifdef ANDROID
+extern int alsa_get_devices(char ***dev_names);
+extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);
+extern int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device);
+#endif
 
 /* buffer.c */
 extern pcm_buffer *buffer_create(int size);
@@ -142,6 +147,9 @@ extern struct nvset *xml_mixp_find_control_set(void *xml, const char *path);
 extern void *xml_dev_open(const char *xml_path, const char *card, int device);
 extern void xml_dev_close(void *xml);
 extern int xml_dev_is_builtin(void *xml);
+extern int xml_dev_is_offload(void *xml);
+extern int xml_dev_is_mmapped(void *xml);
+extern int xml_dev_exists(void *xml, int device);  /* used with device=-1 in xml_dev_open */	
 extern struct nvset *xml_dev_find_ctls(void *xml, const char *name, const char *value);
 
 #define LIBLOSSLESS_ERR_NOCTX		1
