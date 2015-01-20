@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/prctl.h>
+#include <limits.h>
 #ifdef ANDROID
 #include <android/log.h>
 #else
@@ -22,6 +23,12 @@
 #include <jni_sub.h>
 #include "flac/decoder.h"
 #include "main.h"
+
+#if defined(ANDROID) || defined(ANDLINUX)
+static char mixer_paths_file[] = "/system/etc/mixer_paths.xml";
+#else
+static char mixer_paths_file[PATH_MAX];
+#endif
 
 
 /* Returns 0 in paused state, -1 if stopped.
@@ -263,7 +270,6 @@ int audio_start(playback_ctx *ctx)
 
 	ret = alsa_start(ctx);
 	if(ret != 0) goto err_init;
-	ctx->written = 0;
 
 	/* format/period_size must be known after alsa_start() */
 	format = alsa_get_format(ctx);
@@ -297,6 +303,7 @@ Linux pc, period size 9648:
 	    log_err("cannot create thread");
 	    goto err_init;
 	}
+
 	ctx->state = STATE_PLAYING;
 	ctx->written = 0;
 	ctx->stopped = 0;
@@ -405,6 +412,13 @@ jint audio_init(JNIEnv *env, jobject obj, playback_ctx *prev_ctx, jint card, jin
     } else {
 	ctx = (playback_ctx *) calloc(1, sizeof(playback_ctx));
 	if(!ctx) return 0;
+#if !defined(ANDROID) && !defined(ANDLINUX)
+	sprintf(mixer_paths_file, "%s/.alsaplayer/mixer_paths.xml", getenv("HOME"));
+#endif
+	ctx->xml_mixp = xml_mixp_open(mixer_paths_file);
+        if(!ctx->xml_mixp) log_info("%s missing", mixer_paths_file);
+        else log_info("%s opened", mixer_paths_file);
+
 	if(alsa_select_device(ctx,card,device) != 0) {
 	    free(ctx);	
 	    return 0;	
@@ -432,6 +446,8 @@ jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx)
     log_info("audio_exit: ctx=%p",ctx);
     audio_stop(ctx, 1);
     alsa_exit(ctx);
+    alsa_free_mixer_controls(ctx);
+    if(ctx->xml_mixp) xml_mixp_close(ctx->xml_mixp);
     pthread_mutex_destroy(&ctx->mutex);
     pthread_mutex_destroy(&ctx->stop_mutex);
     pthread_cond_destroy(&ctx->cond_stopped);	

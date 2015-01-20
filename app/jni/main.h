@@ -17,7 +17,7 @@ extern "C" {
 #else
 extern int quiet_run;
 #define log_info(fmt, args...) do { if(!quiet_run) printf("liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
-#define log_err(fmt, args...)  do { if(!quiet_run) fprintf(stderr, "liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
+#define log_err(fmt, args...)  do { fprintf(stderr, "liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
 #endif
 
 #ifndef timeradd
@@ -59,7 +59,11 @@ typedef struct {
    int  samplerate;			/* playback samplerate. set by decoder initially, but may be scaled down by 2^n by */
    int  rate_dec;			/* alsa if it's not supported by hw, i.e.: samplerate = (file_samplerate >> rate_dec) */
    int  block_min, block_max;		/* set by decoder */
+   int  frame_min, frame_max;		/* set by decoder */
+   int  bitrate;			/* set by decoder */	
    int  written;			/* set by audio thread */	
+   void *xml_mixp;			/* descriptor for xml file with device controls ("/system/etc/mixer_paths.xml" or similar) */
+   void *ctls;				/* cached mixer controls for current card */
    pthread_mutex_t mutex, stop_mutex;
    pthread_t audio_thread;
    pthread_cond_t cond_stopped;		/* audio_play() is about to exit */
@@ -68,7 +72,6 @@ typedef struct {
    struct pcm_buffer_t *buff; 
    void *alsa_priv;
    int  alsa_error;			/* set on error exit from alsa thread  */
-   void *decoder_priv;
 } playback_ctx;
 
 /* main.c */
@@ -99,10 +102,13 @@ extern bool alsa_set_default_volume(playback_ctx *ctx);
 extern bool alsa_increase_volume(playback_ctx *ctx);
 extern bool alsa_decrease_volume(playback_ctx *ctx);
 extern void alsa_exit(playback_ctx *ctx);
-
+extern void alsa_free_mixer_controls(playback_ctx *ctx);
 extern void *alsa_get_buffer(playback_ctx *ctx);
 extern int alsa_get_period_size(playback_ctx *ctx);
 extern const playback_format_t *alsa_get_format(playback_ctx *ctx);
+extern int alsa_is_offload(playback_ctx *ctx);
+extern int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset);
+
 #ifdef ANDROID
 extern int alsa_get_devices(char ***dev_names);
 extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);

@@ -4,8 +4,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.util.Timer;
 import java.util.TimerTask;
-import eu.chainfire.libsuperuser.Shell;
-
+import java.util.List;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -28,7 +27,10 @@ import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.KeyEvent;
+
+import eu.chainfire.libsuperuser.Shell;
 import net.avs234.alsaplayer.util.AssetsUtils;
+
 
 /*
 TODO: 
@@ -96,8 +98,10 @@ public class AlsaPlayerSrv extends Service {
 	
 	// The lock to acquire so as the device won't go to sleep when we'are playing.  
 	private PowerManager.WakeLock wakeLock = null;
-	
 	private NotificationManager nm = null;
+
+	// Superuser shell
+	private static Shell.Interactive suShell = null;
 	
 	private void log_msg(String msg) {
 		Log.i(getClass().getSimpleName(), msg);
@@ -709,13 +713,14 @@ public class AlsaPlayerSrv extends Service {
 		
 	@Override
 	public void onDestroy() {
-			log_msg("onDestroy()");
-		//	cBacks.kill();
-			unregisterPhoneListener();
-			unregisterHeadsetReciever();
-			if(ctx != 0) audioExit(ctx);
+		log_msg("onDestroy()");
+	//	cBacks.kill();
+		unregisterPhoneListener();
+		unregisterHeadsetReciever();
+		if(ctx != 0) audioExit(ctx);
 	        if(wakeLock != null && wakeLock.isHeld()) wakeLock.release();
 	        if(nm != null) nm.cancel(NOTIFY_ID);
+		if(suShell != null) suShell.close();
 	        libExit();
 	}	 
 	
@@ -825,19 +830,16 @@ public class AlsaPlayerSrv extends Service {
 		String devpath = "/dev/snd/controlC" + card;
        		File dev = new File(devpath);
 
+		if(suShell == null) suShell = (new Shell.Builder()).useSU().open();
+	
 		if(!dev.canRead() || !dev.canWrite()) {
 			try {
-				okay = Shell.SU.available();
-				if(!okay) {
-	                                log_msg("SU not available!");
-	                                return false;
-	                        }
-				log_msg("Trying to prepare " + devpath);
-				Shell.SU.run(new String[] {
-					"chcon u:object_r:device:s0 /dev/snd",
-					"chmod 0666 " + devpath,
-					"chcon u:object_r:zero_device:s0 " + devpath
-				});
+				suShell.addCommand(new String[] {
+                                        "chcon u:object_r:device:s0 /dev/snd",
+                                        "chmod 0666 " + devpath,
+                                        "chcon u:object_r:zero_device:s0 " + devpath
+                                });
+				suShell.waitForIdle();
 				dev = new File(devpath);
 				okay = dev.canRead() && dev.canWrite();
 				if(!okay) {
@@ -853,13 +855,13 @@ public class AlsaPlayerSrv extends Service {
 
 		// Now, playback device.
 
-		boolean offline = isOffloadDevice(card, device);
+		boolean offload = isOffloadDevice(card, device);
 
-		devpath = offline ? "/dev/snd/comprC" : "/dev/snd/pcmC";
+		devpath = offload ? "/dev/snd/comprC" : "/dev/snd/pcmC";
 		devpath += card;
 		devpath += "D";
 		devpath += device;
-		if(!offline) devpath += "p";
+		if(!offload) devpath += "p";
 		dev = new File(devpath);
 
 		if(dev.canRead() && dev.canWrite()) {
@@ -867,21 +869,16 @@ public class AlsaPlayerSrv extends Service {
 			return true;
 		}
 		try {	
-			okay = Shell.SU.available();
-			if(!okay) {
-				log_msg("SU not available!");
-				return false;
-			}
-			log_msg("Trying to prepare " + devpath);
-			Shell.SU.run(new String[] {
+			suShell.addCommand(new String[] {
 				"chmod 0666 " + devpath,
 				"chcon u:object_r:zero_device:s0 " + devpath
 			});
+			suShell.waitForIdle();
+	
 		} catch (Exception e) {
 			log_err("exception while setting audio device permissions: " + e.toString());
 			return false;
 		}
-
 		dev = new File(devpath);
 		okay = dev.canRead() && dev.canWrite();
 
@@ -894,34 +891,30 @@ public class AlsaPlayerSrv extends Service {
 	public static String [] getDevices() {
 
 	    int card = 0;
-	    boolean okay;
+
+	    if(suShell == null) suShell = (new Shell.Builder()).useSU().open();
 
 	    /* make sure that controls for all currently connected devices are prepared */
-
+	    Log.i("AlsaPlayerSrv", "getDevices entry");
 	    while(true) {	
-		File ctl = new File("/dev/snd/controlC" + card);
+		String devpath = "/dev/snd/controlC" + card;
+		File ctl = new File(devpath);
 		if(!ctl.exists()) break;
 		card++;
 		if(ctl.canRead() && ctl.canWrite()) continue;
 		try {
-		    okay = Shell.SU.available();
-		    if(!okay) {
-			// Log.i("AlsaPlayerSrv", "SU not available!"); // log_msg can't be used here
-			break;
-		    }
-		    Shell.SU.run(new String[] {
-			"chmod 0666 " + ctl.toString(),
-			"chcon u:object_r:zero_device:s0 " + ctl.toString()
-		    });	
+			suShell.addCommand(new String[] {
+				"chmod 0666 " + devpath,
+				"chcon u:object_r:zero_device:s0 " + devpath
+			});
+			suShell.waitForIdle();
 		} catch(Exception e) {
+		    Log.e("AlsaPlayerSrv", "exception in getDevices");
 		    return null;	
 		}
 	    }
-
-	    /* now it's safe to call this function */
-
+	    Log.i("AlsaPlayerSrv", "getDevices: premissions set");
 	    return getAlsaDevices();
-
 	}
 	
 }

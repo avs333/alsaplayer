@@ -154,18 +154,11 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	return nbytes;
     }	
 
-//#define TESTX 1
-#ifdef TESTX
-   int fdx;
-   int qqq = 0;
-   int must = 1;
-#ifdef ANDROID
-	fdx = open("/sdcard/qqq.out", O_WRONLY|O_CREAT|O_TRUNC, 0666);
-#else
-	fdx = open("qqq.out", O_WRONLY|O_CREAT|O_TRUNC, 0666);
-#endif
-	if(fdx < 0) log_err("cannot open!!!!!!!");
-#endif
+	if(alsa_is_offload(ctx)) {
+	    log_err("offload playback not supported for ape");
+	    ret = LIBLOSSLESS_ERR_INV_PARM;
+	    goto done;		
+	}
 
 #ifdef ANDROID
 	file = (*env)->GetStringUTFChars(env,jfile,NULL);
@@ -409,17 +402,6 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 		    p = pcmbuf;
 		    do {
 			i = audio_write(ctx, p, bytesperblock);
-#ifdef TESTX
-			if(must) {
-				if(write(fdx, p, bytesperblock) < 0) log_err("TEST error");
-				if(qqq == 200) {
-				    must = 0;
-				    close(fdx);		
-				}
-				log_err("TEST: written");
-				qqq++;
-			}
-#endif
 			if(i < 0) {
 			    if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 			    goto done;

@@ -404,7 +404,9 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    ret = LIBLOSSLESS_ERR_INIT;
 	    goto done;	
 	}
-
+#ifdef ANDROID
+	if(file) (*env)->ReleaseStringUTFChars(env,jfile,file);
+#endif
 	fc = flac_init(mm);
 	if(!fc) {
 	    ret = LIBLOSSLESS_ERR_INIT;
@@ -420,6 +422,9 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	ctx->track_time = fc->totalsamples / fc->samplerate;
 	ctx->block_min = fc->min_blocksize;
 	ctx->block_max = fc->max_blocksize;
+	ctx->frame_min = fc->min_framesize;
+	ctx->frame_max = fc->max_framesize;
+	ctx->bitrate = fc->bitrate;
 
     	log_info("Source: %d-bit %d-channel %d Hz max_block=%d time=%d", 
 		fc->bps, fc->channels, fc->samplerate, fc->max_blocksize, ctx->track_time);
@@ -444,6 +449,11 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    free(bbuff);
 	    munmap(mm, cur_map_len);
 	    off = lseek(fd, 0, SEEK_CUR);
+	    if(alsa_is_offload(ctx)) {
+		flac_exit(fc);
+		log_info("switching to offload playback");
+		return alsa_play_offload(ctx, fd, off);
+	    }		
 	    cur_map_off = off & ~pg_mask;
 	    cur_map_len = (flen - cur_map_off) > MMAP_SIZE ? MMAP_SIZE : flen - cur_map_off;
 	    mm = mmap(0, cur_map_len, PROT_READ, MAP_SHARED, fd, cur_map_off);
@@ -455,6 +465,13 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    mptr = mm + (off & pg_mask);
 	    mend = mm + cur_map_len;	
 	} else {
+	    if(alsa_is_offload(ctx)) {
+		off = fc->metadatalength;
+		flac_exit(fc);
+		munmap(mm, cur_map_len);
+		log_info("switching to offload playback");
+		return alsa_play_offload(ctx, fd, off);
+	    }		
 	    mptr = mm + fc->metadatalength;
 	    mend = mm + cur_map_len;
 	}
@@ -577,9 +594,6 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
     done:
 	if(fc) flac_exit(fc);
 	if(pcmbuf) free(pcmbuf);
-#ifdef ANDROID
-	if(file) (*env)->ReleaseStringUTFChars(env,jfile,file);
-#endif
 	if(fd >= 0) close(fd);
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
 
