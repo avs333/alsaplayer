@@ -95,6 +95,7 @@ public class AlsaPlayerSrv extends Service {
 	public static final int FORMAT_WAV = 0;
 	public static final int FORMAT_FLAC = 1;
 	public static final int FORMAT_APE = 2;
+	public static final int FORMAT_MP3 = 3;
 	
 	// The lock to acquire so as the device won't go to sleep when we'are playing.  
 	private PowerManager.WakeLock wakeLock = null;

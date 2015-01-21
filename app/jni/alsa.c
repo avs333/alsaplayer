@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <pthread.h>
 #include <limits.h>
 #ifdef ANDROID
@@ -26,6 +27,7 @@
 #include <sound/compress_offload.h>
 
 #include "main.h"
+#include "alsa_priv.h"
 
 struct ctl_elem {
     snd_ctl_elem_type_t type;
@@ -62,38 +64,7 @@ static const struct _supp_rates {
 };
 #define n_supp_rates (sizeof(supp_rates))/(sizeof(supp_rates[0]))
 
-typedef struct _alsa_priv {
-    /* per device params */	
-    int card, device;
-    char *card_name;
-    int is_offload;				/* compressed stream playback */
-    int is_mmapped;				/* mmapped playback, not implemented yet */
-    int supp_formats_mask;			/* as per mask field of supp_formats struct */
-    int supp_rates_mask;			/* as per mask field of supp_rates struct */
-    int supp_codecs_mask;			/* for offload playback */
-    struct nvset *nv_start;			/* controls to start playback for this device */
-    struct nvset *nv_stop;			/* controls to stop playback for this device */
-    struct nvset *nv_rate[n_supp_rates];	/* controls to setup playback rates for this device */	
-    struct nvset *nv_fmt[n_supp_formats];	/* controls to setup playback formats for this device */
-    struct nvset *nv_vol_analog[n_supp_formats];	/* analog volume controls for this device */	
-    struct nvset *nv_vol_digital[n_supp_formats];	/* digital volume controls for this device */
-    /* per track params */
-    const playback_format_t *format;	
-    int  chunks;				/* periods and period_size in frames for pcm playback, OR */
-    int  chunk_size;				/* fragments and fragment_size in bytes for offload playback*/
-    int  fd;					/* alsa device */
-    void *buf;					/* internal buffer */
-    int  buf_bytes;				/* its size */
-    int  cur_fmt;				/* index into nv_fmt[], for speedup */
-    int  vol_analog[n_supp_formats];		/* current analog/digital volumes; these are */	
-    int  vol_digital[n_supp_formats];		/* to defaults when the device is switched */
-} alsa_priv;
-
 static int init_mixer_controls(playback_ctx *ctx, int card);
-static int set_mixer_controls(playback_ctx *ctx, struct nvset *nv);
-
-typedef enum { VOL_SET_CURRENT, VOL_INCREASE, VOL_DECREASE } vol_ctl_t;
-static bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op); 
 
 #if defined(ANDROID) || defined(ANDLINUX)
 static char cards_file[] = "/sdcard/.alsaplayer/cards.xml";
@@ -126,6 +97,7 @@ void alsa_exit(playback_ctx *ctx)
 	if(priv->card_name) free(priv->card_name);
 	if(priv->nv_start) free_nvset(priv->nv_start);
 	if(priv->nv_stop) free_nvset(priv->nv_stop);
+	if(priv->xml_dev) xml_dev_close(priv->xml_dev);
 	for(k = 0; k < n_supp_rates; k++) 
 	    if(priv->nv_rate[k]) free(priv->nv_rate[k]);
 	for(k = 0; k < n_supp_formats; k++) { 
@@ -238,7 +210,6 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	if(!ctx->alsa_priv) return LIBLOSSLESS_ERR_NOMEM;
 
 	priv = (alsa_priv *) ctx->alsa_priv;	
-
 	priv->card = card;	
 	priv->device = device;
 
@@ -359,15 +330,11 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		goto err_exit;	    
 	    }
 #endif	
-	    close(fd);
-	    if(xml_dev) xml_dev_close(xml_dev);
-	    log_info("selected card %d device %d for offload playback", card, device);	
-	    return ret;	
 	}
 
 	for(k = 0; k < n_supp_formats; k++) {	
-	    setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0);
-	    if(ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
+	    if(!priv->is_offload) setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0);
+	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_formats_mask |= supp_formats[k].mask;
 		if(!xml_dev) continue;
 		priv->nv_fmt[k] = xml_dev_find_ctls(xml_dev, "fmt", supp_formats[k].str);
@@ -377,22 +344,22 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		if(!priv->nv_vol_analog[k]) priv->nv_vol_analog[k] = xml_dev_find_ctls(xml_dev, "analog_volume", 0);
 		if(priv->nv_vol_analog[k]) {
 		    priv->vol_analog[k] = atoi(priv->nv_vol_analog[k]->value);	/* set to default analog value */
-		    log_info("found analog volume controls for fmt=%s: %s %d/%d/%d [...]", supp_formats[k].str, 
-			priv->nv_vol_analog[k]->name, priv->vol_analog[k], priv->nv_vol_analog[k]->min, priv->nv_vol_analog[k]->max);
+		/*  log_info("found analog volume controls for fmt=%s: %s %d/%d/%d [...]", supp_formats[k].str, 
+			priv->nv_vol_analog[k]->name, priv->vol_analog[k], priv->nv_vol_analog[k]->min, priv->nv_vol_analog[k]->max); */
 		}
 	    	priv->nv_vol_digital[k] = xml_dev_find_ctls(xml_dev, "digital_volume", supp_formats[k].str);
 		if(!priv->nv_vol_digital[k]) priv->nv_vol_digital[k] = xml_dev_find_ctls(xml_dev, "digital_volume", 0);
 		if(priv->nv_vol_digital[k]) {
 		    priv->vol_digital[k] = atoi(priv->nv_vol_digital[k]->value); /* set to default digital value */
-		    log_info("found digital volume controls for fmt=%s: %s %d/%d/%d [...]", supp_formats[k].str,
-			priv->nv_vol_digital[k]->name, priv->vol_digital[k], priv->nv_vol_digital[k]->min, priv->nv_vol_digital[k]->max);
+		/*   log_info("found digital volume controls for fmt=%s: %s %d/%d/%d [...]", supp_formats[k].str,
+			priv->nv_vol_digital[k]->name, priv->vol_digital[k], priv->nv_vol_digital[k]->min, priv->nv_vol_digital[k]->max); */
 		}
 	    }
 	}
 	for(k = 0; k < n_supp_rates; k++) {
 	    int rate = supp_rates[k].rate;	
-	    setup_hwparams(&hwparams, 0, rate, 0, 0, 0);	
-	    if(ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
+	    if(!priv->is_offload) setup_hwparams(&hwparams, 0, rate, 0, 0, 0);	
+	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_rates_mask |= supp_rates[k].mask;
 		if(xml_dev) {
 		    sprintf(tmp, "%d", rate);
@@ -409,11 +376,11 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    goto err_exit;	
 	}
 	close(fd);
-	if(xml_dev) xml_dev_close(xml_dev);
-	log_info("selected card=%d (%s) device=%d (format/rate masks=0x%x/0x%x)", 
+	priv->xml_dev = xml_dev;	
+	if(priv->is_offload) log_info("selected card %d device %d for offload playback", card, device);	
+	else log_info("selected card=%d (%s) device=%d (format/rate masks=0x%x/0x%x)", 
 		card, priv->card_name, device, priv->supp_formats_mask, priv->supp_rates_mask);
-
-	return ret;
+	return 0;
 
     err_exit:
 	if(fd >= 0) close(fd);
@@ -635,81 +602,7 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 
     return ret;
 }
-
-int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
-{
-    alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;
-    int k, ret;
-    char tmp[128];	
-    struct snd_compr_caps caps;
-    struct snd_compr_params params;
-
-	for(k = 0; k < n_supp_rates; k++)
-	    if(supp_rates[k].rate == ctx->samplerate) break;
-
-	if(k == n_supp_rates) {
-	    log_err("unsupported playback rate");
-	    return LIBLOSSLESS_ERR_AU_SETUP;		
-	}
-	if(priv->nv_start) set_mixer_controls(ctx, priv->nv_start);
-	else log_info("no start controls for this device");
-
-	priv->cur_fmt = 0;
-	if(ctx->bps == 24) priv->cur_fmt++;
-	priv->format = &supp_formats[priv->cur_fmt];
-
-	alsa_set_volume(ctx, VOL_SET_CURRENT);	/* must reset according to cur_fmt */
-
-	log_info("opening offload device");
-	sprintf(tmp, "/dev/snd/comprC%dD%d", priv->card, priv->device);
-	priv->fd = open(tmp, O_WRONLY);
-	if(priv->fd < 0) {
-	    log_err("cannot open %s", tmp);
-	    ret = LIBLOSSLESS_ERR_AU_SETUP;
-	    goto err_exit;
-	}
-	log_info("offload device opened");
-	if(ioctl(priv->fd, SNDRV_COMPRESS_GET_CAPS, &caps) != 0) {
-	    log_err("cannot get compress capabilities for device %d", priv->device);
-	    ret = LIBLOSSLESS_ERR_AU_SETUP;
-	    goto err_exit;
-	}
-	memset(&params, 0, sizeof(params));
-	params.codec.id = SND_AUDIOCODEC_FLAC;
-	params.codec.ch_in = ctx->channels;			
-	params.codec.ch_out = ctx->channels;
-	params.codec.sample_rate = supp_rates[k].mask;
-	params.codec.profile = SND_AUDIOPROFILE_FLAC;
-	/* params.codec.format = SND_AUDIOSTREAMFORMAT_FLAC ??? */
-	params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
-	params.codec.bit_rate = ctx->bitrate;
- 
-	params.codec.options.flac_dec.sample_size = ctx->bps;
-	params.codec.options.flac_dec.min_blk_size = ctx->block_min;
-	params.codec.options.flac_dec.max_blk_size = ctx->block_max;
-	params.codec.options.flac_dec.min_frame_size = ctx->frame_min;
-	params.codec.options.flac_dec.max_frame_size = ctx->frame_max;
-
-	params.buffer.fragment_size = caps.min_fragment_size;
-	params.buffer.fragments = caps.max_fragments; 
-
-	if(ioctl(priv->fd, SNDRV_COMPRESS_SET_PARAMS, &params) != 0) {
-	    log_err("failed to set hardware parameters");
-	    ret = LIBLOSSLESS_ERR_AU_SETUP;
-	    goto err_exit;				
-	}
-	log_info("offload playback ready");
-	return 0;
-
-    err_exit:
-	if(priv->fd >= 0) close(priv->fd);
-	close(fd);
-	log_err("exiting on error");
-	priv->fd = -1;
-
-    return ret;	
-} 
-
+/* Count in samples. */
 ssize_t alsa_write(playback_ctx *ctx, size_t count)
 {
     alsa_priv *priv;
@@ -785,34 +678,6 @@ ssize_t alsa_write(playback_ctx *ctx, size_t count)
 	ctx->written += count;
 
     return written;
-
-#if 0
-	for(k = 0, written = 0; k < priv->chunks; k++) {
-	    while(written < count) {
-		i = write(priv->fd, priv->buf + k * priv->chunk_size * ctx->channels * priv->format->phys_bits/8,
-			priv->chunk_size * ctx->channels * priv->format->phys_bits/8);
-		if(i != priv->chunk_size * ctx->channels * priv->format->phys_bits/8) {
-		    switch(errno) {
-			case EINTR:
-			case EAGAIN:
-			    log_info("ioctl error: %s", strerror(errno));
-			    usleep(100);
-			    break;
-			case EPIPE:
-			    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_PREPARE) < 0) {
-				log_err("prepare failed after underrun");
-				return 0;	
-			    }
-			    log_info("underrun occurred");
-			    break;
-			default:
-			    log_info("unhandled error %d in WRITEI_FRAMES: %s (%d)", i, strerror(errno), errno);
-			    return 0;		
-		    }
-		} else written += priv->chunk_size;
-	    }
-	}
-#endif
 }
 
 void *alsa_get_buffer(playback_ctx *ctx)
@@ -878,22 +743,6 @@ void alsa_stop(playback_ctx *ctx)
 	priv->buf = 0;
 }
 
-#if 0
-static bool alsa_pause_ioctl(playback_ctx *ctx, int push) 
-{
-    int ret;
-    alsa_priv *priv;
-	if(!ctx || !ctx->alsa_priv) return false;
-	priv = (alsa_priv *) ctx->alsa_priv;
-	if((priv->setup_info & SNDRV_PCM_INFO_PAUSE) == 0) {
-	    log_err("pause/resume not supported by hardware");
-	    return false;
-	}
-	ret = ioctl(priv->fd, SNDRV_PCM_IOCTL_PAUSE, push);
-    return ret == 0;
-}
-#endif
-
 bool alsa_pause(playback_ctx *ctx) 
 {
     alsa_stop(ctx);	
@@ -905,7 +754,7 @@ bool alsa_resume(playback_ctx *ctx)
    return alsa_start(ctx) == 0;
 }
 
-static bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op) 
+bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op) 
 {
     alsa_priv *priv;
     char tmp[128];
@@ -1073,7 +922,7 @@ static int init_mixer_controls(playback_ctx *ctx, int card)
 }
 
 /* returns the number of controls set successfully */
-static int set_mixer_controls(playback_ctx *ctx, struct nvset *nv)
+int set_mixer_controls(playback_ctx *ctx, struct nvset *nv)
 {
     int i, k, n = 0;
     struct ctl_elem *ctl, *ctls;
@@ -1172,8 +1021,16 @@ void alsa_free_mixer_controls(playback_ctx *ctx)
 	ctx->ctls = 0;
 }
 
-#ifdef ANDROID
+int alsa_get_rate(int rate) 
+{
+    int k;
+	for(k = 0; k < n_supp_rates; k++) 
+	    if(supp_rates[k].rate == rate) return supp_rates[k].mask;
+    return -1;
+}
 
+
+#ifdef ANDROID
 
 static int get_card_info(int card, struct snd_ctl_card_info *info)
 {

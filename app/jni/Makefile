@@ -22,7 +22,7 @@ else
 LDFLAGS += -lpthread
 endif
 
-SRC =	flac/shndec.c  flac/main.c  flac/decoder.c  buffer.c alsa.c main.c linux_main.c  		\
+SRC =	flac/shndec.c  flac/main.c  flac/decoder.c  buffer.c alsa.c alsa_offload.c main.c linux_main.c  		\
 	ape/entropy.c  ape/filter-pre.c  ape/parser.c   ape/decoder.c  ape/main.c  ape/predictor.c	
 
 SRCX =	tinyxml/tinyxml2.cpp  tinyxml/xmlparser.cpp

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <cards>
+
   <!-- builtin=1 means device setup should be added from mixer_paths.xml -->
   <card name="(msm8974|apq8084).*" builtin="1">
     <device id="0">
@@ -13,9 +14,17 @@
 	<path name="common_settings"/>
     </device>
     <device id="9" offload="1">
-	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia6" value="1"/> </path>
-	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia6" value="0"/> </path>
-	<path name="common_settings"/>
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="0"/> </path>
+	<!-- For offload playback, no rate/fmt-specific settings seem to be required -->
+	<path name="digital_volume">
+	    <ctl name="RX1 Digital Volume" value="80" min="0" max="84"/>
+	    <ctl name="RX2 Digital Volume" value="80" min="0" max="84"/>
+	</path>
+	<path name="analog_volume">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path>
     </device>
     <device id="15">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="1"/> </path>
@@ -51,6 +60,7 @@
 	</path>
     </path>
   </card>
+
   <card name="E-MU 0404 | USB">
      <!-- S24_3LE playback only -->
     <device id="0">
@@ -76,5 +86,6 @@
 	<path name="rate" value="48000"> <ctl name="Clock rate Selector" value="1"/> </path>	 
     </path>
   </card>
+
 </cards>
 

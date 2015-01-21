@@ -34,7 +34,7 @@ static char mixer_paths_file[PATH_MAX];
 /* Returns 0 in paused state, -1 if stopped.
    Blocks in paused state. */
 
-static int sync_state(playback_ctx *ctx, const char *func) {
+int sync_state(playback_ctx *ctx, const char *func) {
     pthread_mutex_lock(&ctx->mutex);	
     if(ctx->state != STATE_PLAYING) {	
 	if(ctx->state == STATE_PAUSED) {
@@ -197,7 +197,8 @@ int audio_stop(playback_ctx *ctx, int now)
     	ctx->state = STATE_STOPPED;	
 	log_info("context was paused");
 	pthread_cond_broadcast(&ctx->cond_resumed);
-	alsa_resume(ctx);	/* need to set controls, close(ctx->pcm_fd) blocks for 5s otherwise */
+	/* need to set controls, close(pcm_fd) blocks for 5s otherwise */
+	alsa_is_offload(ctx) ? alsa_resume_offload(ctx) : alsa_resume(ctx);	
     } else if(now) ctx->state = STATE_STOPPED;
 
     if(ctx->buff) buffer_stop(ctx->buff, now);
@@ -345,7 +346,7 @@ jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx)
 	log_info("not in playing state");
 	return false;
     }	
-    ret = alsa_pause(ctx);
+    ret = alsa_is_offload(ctx) ? alsa_pause_offload(ctx) : alsa_pause(ctx);
     if(ret) {	
 	ctx->state = STATE_PAUSED;
 	log_info("paused");
@@ -370,7 +371,7 @@ jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx)
 	log_info("not in paused state");
 	return false;
     } 	
-    ret = alsa_resume(ctx);	
+    ret = alsa_is_offload(ctx) ? alsa_resume_offload(ctx) : alsa_resume(ctx);	
     if(!ret) log_err("resume failed, proceeding anyway");
     ctx->state = STATE_PLAYING;	
     pthread_cond_broadcast(&ctx->cond_resumed);
@@ -390,7 +391,7 @@ static jint audio_get_duration(JNIEnv *env, jobject obj, playback_ctx *ctx)
 static jint audio_get_cur_position(JNIEnv *env, jobject obj, playback_ctx *ctx) 
 {
    if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
-   return ctx->written/ctx->samplerate;
+   return alsa_is_offload(ctx) ? alsa_time_pos_offload(ctx) : ctx->written/ctx->samplerate;
 }
 #endif
 
@@ -495,7 +496,7 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfil
 	    log_err("no context");      
 	    return LIBLOSSLESS_ERR_NOCTX;
 	}
-
+	ctx->file_format = format;
 	if(format == FORMAT_FLAC)
 	    ret = flac_play(env, obj, ctx, jfile, start);
 	else if(format == FORMAT_APE)

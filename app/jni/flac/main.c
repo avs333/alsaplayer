@@ -452,7 +452,8 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    if(alsa_is_offload(ctx)) {
 		flac_exit(fc);
 		log_info("switching to offload playback");
-		return alsa_play_offload(ctx, fd, off);
+		update_track_time(env, obj, ctx->track_time);
+		return alsa_play_offload(ctx,fd,off);
 	    }		
 	    cur_map_off = off & ~pg_mask;
 	    cur_map_len = (flen - cur_map_off) > MMAP_SIZE ? MMAP_SIZE : flen - cur_map_off;
@@ -470,7 +471,8 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		flac_exit(fc);
 		munmap(mm, cur_map_len);
 		log_info("switching to offload playback");
-		return alsa_play_offload(ctx, fd, off);
+		update_track_time(env, obj, ctx->track_time);
+		return alsa_play_offload(ctx,fd,off);
 	    }		
 	    mptr = mm + fc->metadatalength;
 	    mend = mm + cur_map_len;
@@ -509,6 +511,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		}	
 		mptr = mm + (off & pg_mask);
 		mend = mm + cur_map_len;	
+		i = (mend - mptr < MAX_FRAMESIZE) ? mend - mptr : MAX_FRAMESIZE;
 		log_info("remapped");
 	    }
 

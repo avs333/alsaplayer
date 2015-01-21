@@ -143,10 +143,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 		mptr = mm + (off & pg_mask);
 		mend = mm + cur_map_len;
 		log_info("remapped");
-		if(mptr + nbytes > mend) {
-		    log_err("requested too much in %s: [%d]", __func__, nbytes);
-		    return -1;
-		}
+		if(mptr + nbytes > mend) nbytes = mend - mptr;  /* should be at eof */
 	    }
 	}
 	memcpy(buff, mptr, nbytes);

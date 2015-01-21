@@ -48,6 +48,11 @@ typedef struct _playback_format_t {
 
 struct pcm_buffer_t;
 
+#define FORMAT_WAV	0
+#define FORMAT_FLAC	1
+#define FORMAT_APE	2
+#define FORMAT_MP3	3	/* offload playback only */
+
 typedef struct {
    enum _playback_state_t {
 	STATE_STOPPED = 0,	/* init state */
@@ -55,6 +60,7 @@ typedef struct {
 	STATE_PAUSED
    } state;
    int  track_time;			/* set by decoder */
+   int  file_format;			/* FORMAT_* above, set on entry to audio_play */
    int  channels, bps;			/* set by decoder */
    int  samplerate;			/* playback samplerate. set by decoder initially, but may be scaled down by 2^n by */
    int  rate_dec;			/* alsa if it's not supported by hw, i.e.: samplerate = (file_samplerate >> rate_dec) */
@@ -80,9 +86,7 @@ extern int audio_stop(playback_ctx *ctx, int abort);
 extern int audio_write(playback_ctx *ctx, void *buff, int size);
 extern int check_state(playback_ctx *ctx, const char *func);
 extern void update_track_time(JNIEnv *env, jobject obj, int time);
-#define FORMAT_WAV	0
-#define FORMAT_FLAC	1
-#define FORMAT_APE	2
+extern int sync_state(playback_ctx *ctx, const char *func);
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start);
 #ifndef ANDROID
 extern jint audio_init(JNIEnv *env, jobject obj, playback_ctx *prev_ctx, jint card, jint device);
@@ -107,13 +111,17 @@ extern void *alsa_get_buffer(playback_ctx *ctx);
 extern int alsa_get_period_size(playback_ctx *ctx);
 extern const playback_format_t *alsa_get_format(playback_ctx *ctx);
 extern int alsa_is_offload(playback_ctx *ctx);
-extern int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset);
-
 #ifdef ANDROID
 extern int alsa_get_devices(char ***dev_names);
 extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);
 extern int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device);
 #endif
+
+/* alsa_offload.c */
+extern int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset);
+extern bool alsa_pause_offload(playback_ctx *ctx);
+extern bool alsa_resume_offload(playback_ctx *ctx);
+extern int alsa_time_pos_offload(playback_ctx *ctx);
 
 /* buffer.c */
 extern pcm_buffer *buffer_create(int size);
@@ -157,6 +165,11 @@ extern int xml_dev_is_offload(void *xml);
 extern int xml_dev_is_mmapped(void *xml);
 extern int xml_dev_exists(void *xml, int device);  /* used with device=-1 in xml_dev_open */	
 extern struct nvset *xml_dev_find_ctls(void *xml, const char *name, const char *value);
+
+/* TODO
+extern int xml_dev_get_chunks(void *xml, const char *rate, const char *format);
+extern int xml_dev_get_chunk_size(void *xml, const char *rate, const char *format);
+*/
 
 #define LIBLOSSLESS_ERR_NOCTX		1
 #define LIBLOSSLESS_ERR_INV_PARM	2
