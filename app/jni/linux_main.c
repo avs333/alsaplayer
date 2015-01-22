@@ -115,6 +115,9 @@ int main(int argc, char **argv)
 	    } else if(strcmp(c, ".ape") == 0) {
 		args->ftype = FORMAT_APE;	
 		if(args->track) printf("not a cue file, track specification ignored\n");
+	    } else if(strcmp(c, ".mp3") == 0) {
+		args->ftype = FORMAT_MP3;	
+		if(args->track) printf("not a cue file, track specification ignored\n");
 	    } else if(strcmp(c, ".cue") == 0) {
 		if(args->min || args->sec) printf("start time specificaton ignored for cue file\n");
 		if(parse_cue(args) != 0) {
@@ -124,7 +127,7 @@ int main(int argc, char **argv)
 	    }
 	}
 
-	if(args->ftype == 0) return printf("file extension must be .flac or .ape\n");
+	if(args->ftype == 0) return printf("file extension must be .flac, .ape or .mp3\n");
 
 	ctx = (playback_ctx *) audio_init(0, 0, 0, card, device);
 	if(!ctx) return -1;	
@@ -153,8 +156,9 @@ static int parse_cue(struct call_args *args) {
 	    if(strncmp(buff, "FILE ", 5) == 0) {
 		c = strrchr(buff, ' ');
 		if(!c) continue;
-		if(strncmp(c+1, "WAVE", 4) != 0 && strncmp(c+1, "FLAC", 4) != 0 
-		   && strncmp(c+1, "APE", 3) != 0) continue;
+		if(strncmp(c+1, "WAVE", 4) != 0 && 
+		    strncmp(c+1, "FLAC", 4) != 0 && strncmp(c+1, "APE", 3) != 0 /* yeah.. some guys create such cues */
+		) continue;
 		if(buff[5] == '"' && *(c - 1) == '"') {
 		    *(c-1) = 0;
 		    c = buff+6;	
@@ -175,21 +179,23 @@ static int parse_cue(struct call_args *args) {
 		ce = strrchr(args->file, '.');
 		if(!ce) return printf("error: cue references file %s with no extension\n", args->file);
 		if(stat(args->file, &st) != 0) { 
-		    *ce = 0;
-		    strcat(args->file, ".flac");
-		    if(stat(args->file, &st) == 0) args->ftype = FORMAT_FLAC;
-		    else {
-			*ce = 0;
-			strcat(args->file, ".ape");
-			if(stat(args->file, &st) == 0) args->ftype = FORMAT_APE;
-			else {
-			    *ce = 0;
-			    return printf("error: cue references non-existing file %s\n", args->file);
+		    const struct {
+			const char *ext; 
+			int ftype;
+		    } *ep, ee[] = { { ".flac", FORMAT_FLAC }, { ".ape", FORMAT_APE }, { ".mp3", FORMAT_MP3 }, { 0, 0 }  };
+		    for(ep = &ee[0]; ep->ext; ep++) {
+			*ce = 0; 
+			strcat(args->file, ep->ext);
+		    	if(stat(args->file, &st) == 0) {
+			    args->ftype = ep->ftype;
+			    break;
 			}
 		    }
+		    if(!ep->ext) return printf("error: cue references non-existing file %s\n", args->file);		
 		} else {
 		    if(strcmp(ce, ".flac") == 0) args->ftype = FORMAT_FLAC;
 		    else if(strcmp(ce, ".ape") == 0) args->ftype = FORMAT_APE;
+		    else if(strcmp(ce, ".mp3") == 0) args->ftype = FORMAT_MP3;
 		    else return printf("error: cue references file %s with unsupported extension\n", args->file);
 		}
 		if(args->track == 0) return 0;

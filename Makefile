@@ -6,6 +6,8 @@ LIB_SRC = $(wildcard app/jni/*) $(wildcard app/jni/flac/*) $(wildcard app/jni/ap
 all:	$(SIGNED_APK)
 
 $(SIGNED_APK):	$(LIB) $(JAVA_SRC)
+	@perl -i settime.pl app/src/main/res/values/strings.xml 
+	@perl -i settime.pl app/src/main/res/values-ru/strings.xml 
 	./gradlew assembleRelease
 
 $(LIB): $(LIB_SRC)

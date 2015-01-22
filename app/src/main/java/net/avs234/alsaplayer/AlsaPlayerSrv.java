@@ -58,9 +58,11 @@ public class AlsaPlayerSrv extends Service {
 	public static native boolean	audioDecreaseVolume(int ctx);
 	
 	public static native int	audioPlay(int ctx, String file, int format, int start);
-	public static native int []	extractFlacCUE(String file);
-	public static native String []  getAlsaDevices();
+	public static native boolean	inOffloadMode(int ctx);	 
 
+	public static native int []	extractFlacCUE(String file);
+
+	public static native String []  getAlsaDevices();
 	public static native boolean	isUsbCard(int card); 
 	public static native boolean	isOffloadDevice(int card, int device); 
 	
@@ -410,7 +412,7 @@ public class AlsaPlayerSrv extends Service {
 			public void run() {
 				tid = Process.myTid();
 				running = true;
-				log_msg("run(): starting new thread " + tid);
+				log_msg("run(): starting new thread " + tid + ", ctx = " + String.format("0x%08x", ctx));
 				Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
 				if(!wakeLock.isHeld()) wakeLock.acquire();
 				int k;
@@ -453,6 +455,16 @@ public class AlsaPlayerSrv extends Service {
 							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
 							if(ctx == 0) k = 1;
 							else k = audioPlay(ctx, files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
+						} else if(files[cur_pos].endsWith(".mp3") || files[cur_pos].endsWith(".MP3")) {
+							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
+							boolean offload = (ctx != 0) ? inOffloadMode(ctx) : false;
+							if(!offload) {
+								cur_mode = MODE_NONE;	
+								k = extPlay(files[cur_pos],times[cur_pos]+cur_start);
+							} else {
+								cur_mode = MODE_ALSA;
+								k = audioPlay(ctx, files[cur_pos], FORMAT_MP3, times[cur_pos]+cur_start);
+							}
 			              		} else {
 							cur_mode = MODE_NONE;	
 							k = extPlay(files[cur_pos],times[cur_pos]+cur_start);
@@ -652,6 +664,7 @@ public class AlsaPlayerSrv extends Service {
 		public boolean	play_prev()  	{ return plist.play_prev(); }
 		public boolean	pause() 	{ return plist.pause(); }
 		public boolean	resume() 	{ return plist.resume(); }
+		public boolean	stop() 		{ return plist.stop(); }
 		public boolean	inc_vol() 	{ return plist.inc_vol(); }
 		public boolean	dec_vol() 	{ return plist.dec_vol(); }
 		public boolean	shutdown() 	{ plist.stop();  if(ctx != 0) audioExit(ctx); ctx = 0; return true; }
@@ -659,6 +672,7 @@ public class AlsaPlayerSrv extends Service {
 		public boolean  initialized() 	{ return ctx != 0; }	// why this function? 
 		public boolean	is_paused()	{ return plist.paused; }
 		public boolean	set_device(int card, int dev)	{ return plist.set_device(card, dev); }
+		public boolean  in_alsa_playback() { return plist.running && plist.cur_mode == MODE_ALSA; }
 		public int	get_cur_mode()	{ return plist.cur_mode; }
 		public String	get_cur_dir()	{ return plist.dir; }
 		public int	get_cur_pos()	{ return plist.cur_pos; }
@@ -671,8 +685,8 @@ public class AlsaPlayerSrv extends Service {
 		public void	set_headset_mode(int m)	{ headset_mode = m; }
 		public void 	registerCallback(IAlsaPlayerSrvCallback cb)   { if(cb != null) cBacks.register(cb); };
 		public void 	unregisterCallback(IAlsaPlayerSrvCallback cb) { if(cb != null) cBacks.unregister(cb); };
-	    public int []	get_cue_from_flac(String file) 	{return  extractFlacCUE(file); };
-	    public void		launch(String path)		{ if(launcher != null) launcher.launch(path);  };
+		public int []	get_cue_from_flac(String file) 	{ return  extractFlacCUE(file); };
+		public void	launch(String path)		{ if(launcher != null) launcher.launch(path);  };
 	};
 	
 	private class Launcher {

@@ -11,6 +11,7 @@ interface IAlsaPlayerSrv {
 	boolean play_prev();
 	boolean pause();
 	boolean resume();
+	boolean stop();
 	boolean inc_vol();
 	boolean dec_vol();
 	boolean shutdown();
@@ -18,6 +19,7 @@ interface IAlsaPlayerSrv {
 	boolean is_paused();
 	boolean initialized();
 	boolean set_device(int card, int dev);
+	boolean in_alsa_playback();
 	int 	get_cur_mode();
 	String  get_cur_dir();
 	int	get_cur_pos();

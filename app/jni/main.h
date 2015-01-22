@@ -122,6 +122,7 @@ extern int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset);
 extern bool alsa_pause_offload(playback_ctx *ctx);
 extern bool alsa_resume_offload(playback_ctx *ctx);
 extern int alsa_time_pos_offload(playback_ctx *ctx);
+extern int mp3_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
 
 /* buffer.c */
 extern pcm_buffer *buffer_create(int size);

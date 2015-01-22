@@ -393,6 +393,12 @@ static jint audio_get_cur_position(JNIEnv *env, jobject obj, playback_ctx *ctx)
    if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
    return alsa_is_offload(ctx) ? alsa_time_pos_offload(ctx) : ctx->written/ctx->samplerate;
 }
+
+static jboolean in_offload_mode(JNIEnv *env, jobject obj, playback_ctx *ctx)
+{
+    return alsa_is_offload(ctx) != 0;	
+}
+
 #endif
 
 
@@ -487,7 +493,6 @@ jboolean audio_increase_volume(JNIEnv *env, jobject obj, playback_ctx *ctx)
     return true;
 }
 
-
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start) {
 
     int ret = 0;
@@ -497,11 +502,20 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfil
 	    return LIBLOSSLESS_ERR_NOCTX;
 	}
 	ctx->file_format = format;
-	if(format == FORMAT_FLAC)
-	    ret = flac_play(env, obj, ctx, jfile, start);
-	else if(format == FORMAT_APE)
-	    ret = ape_play(env, obj, ctx, jfile, start);	
-
+	switch(format) {
+	    case FORMAT_FLAC:
+		ret = flac_play(env, obj, ctx, jfile, start);
+		break;
+	    case FORMAT_APE:
+		ret = ape_play(env, obj, ctx, jfile, start);
+		break;
+	    case FORMAT_MP3:
+		ret = mp3_play(env, obj, ctx, jfile, start);
+		break;
+	    default:
+		ret = LIBLOSSLESS_ERR_FORMAT;
+		break;
+	}
 	if(ret) log_err("exiting on error %d", ret);
 	else log_info("Playback complete.");
 
@@ -600,6 +614,7 @@ static JNINativeMethod methods[] = {
  { "extractFlacCUE", "(Ljava/lang/String;)[I", (void *) extract_flac_cue },
  { "getAlsaDevices", "()[Ljava/lang/String;", (void *) get_devices },
  { "isUsbCard", "(I)Z", (void *) alsa_is_usb_card },
+ { "inOffloadMode", "(I)Z", (void *) in_offload_mode },
  { "isOffloadDevice", "(II)Z", (void *) alsa_is_offload_device },
  { "libInit", "(I)Z", (void *) libinit },
  { "libExit", "()Z", (void *) libexit },

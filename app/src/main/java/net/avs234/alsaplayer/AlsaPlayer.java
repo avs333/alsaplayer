@@ -173,7 +173,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     				errExit(R.string.strErrSrvIf);
     				return;
     			}
-    			try{
+    			try {
     			//	if(!srv.initialized()) {
         		//		log_err("Server failed to initialize, exiting");
         		//		errExit(getString(R.string.strSrvInitFail));
@@ -188,14 +188,16 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     						if(setAdapter(f) && i > 0) {
     							log_msg("starting from \"" + startfile + "\" in \""  + f.toString() + "\"");
     							srv.registerCallback(cBack);
-    		    				update_headset_mode(null);
-    		    				playDir(f,startfile);
+    		    					update_headset_mode(null);
+							update_device_settings();
+	    		    				playDir(f,startfile);
     							return;
     						}	
     					} else if(f.exists() && (f.isDirectory() || hasPlistExt(startfile) || hasCueExt(startfile))) {
     						if(setAdapter(f)) {
-    		    				srv.registerCallback(cBack);
-    		    				update_headset_mode(null);
+    		    					srv.registerCallback(cBack);
+    		    					update_headset_mode(null);
+							update_device_settings();
     							playPath(f);
     							return;
     						}
@@ -205,7 +207,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     				if(s != null) {
     					File f = new File(s);
     					if(f.exists() && (f.isDirectory() || hasPlistExt(s) || hasCueExt(s))) {
-							try {
+					    try {
     						  if(setAdapter(f)) { 
     							log_msg("restored previous playlist");
     							int i = srv.get_cur_pos() + 1;
@@ -221,27 +223,27 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         								buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_pause));
     							} else cBack.playItemChanged(true,getString(R.string.strStopped));
     						  } else s = null;
-							} catch (Exception e) {
-								log_err("exception in pause button handler");
-							}
+					    } catch (Exception e) {
+							log_err("exception in pause button handler");
+					    }
     					}
     				} 	
     				
     				if(s == null) {
-    					if(prefs.last_path == null || !(cur_path = new File(prefs.last_path)).exists()) {
-    		            	cur_path = Environment.getExternalStorageDirectory();
-    		            }	
-    		            if(!setAdapter(cur_path)) {
-    		            	log_err("cannot set default adapter!!!" + cur_path);
-    		            	if(!setAdapter(new File("/"))) errExit(R.string.strCantSetup);
-    		            }
-    		            fileList.setSelection(0);
-    		            if(prefs.last_played_file != null && (new File(prefs.last_played_file)).exists() && !srv.is_running()) {
+  				    if(prefs.last_path == null || !(cur_path = new File(prefs.last_path)).exists()) {
+    		           		 	cur_path = Environment.getExternalStorageDirectory();
+    			            }	
+	    		            if(!setAdapter(cur_path)) {
+   	 		            	log_err("cannot set default adapter!!!" + cur_path);
+    			            	if(!setAdapter(new File("/"))) errExit(R.string.strCantSetup);
+    			            }
+    		         	    fileList.setSelection(0);
+	    		            if(prefs.last_played_file != null && (new File(prefs.last_played_file)).exists() && !srv.is_running()) {
         					log_msg("bookmarked, starting from paused state");
-    		            	cBack.playItemChanged(true,getString(R.string.strPaused));
+    		      	     	 	cBack.playItemChanged(true,getString(R.string.strPaused));
         					pause_on_start = true;
         					buttPause.setBackgroundDrawable(getResources().getDrawable(R.drawable.s_play));
-    					} else cBack.playItemChanged(true,getString(R.string.strStopped));
+    				    } else cBack.playItemChanged(true,getString(R.string.strStopped));
     				}
     				srv.registerCallback(cBack);
     				update_headset_mode(null);
@@ -472,6 +474,10 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 
 	@Override
 	public boolean dispatchKeyEvent(KeyEvent event) {
+	    if(srv == null) return super.dispatchKeyEvent(event);
+	    try {
+		if(!srv.in_alsa_playback()) return super.dispatchKeyEvent(event);
+	    } catch (Exception e) {}
 	    int action = event.getAction();
 	    int keyCode = event.getKeyCode();
 	    switch (keyCode) {
@@ -479,14 +485,14 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	        if (action == KeyEvent.ACTION_DOWN) {
 	            // Do something to increase a value
 			log_msg("Volume up");
-			if(srv != null) try {  srv.inc_vol(); } catch (Exception e) {}
+			try {  srv.inc_vol(); } catch (Exception e) {}
 	        }
 	        return true;
 	    case KeyEvent.KEYCODE_VOLUME_DOWN:
 	        if (action == KeyEvent.ACTION_DOWN) {
 	            // Do something to decrease a value
 			log_msg("Volume down");
-			if(srv != null) try { srv.dec_vol(); } catch (Exception e) {}	
+			try { srv.dec_vol(); } catch (Exception e) {}	
 	        }
 	        return true;
 	    default:
@@ -972,7 +978,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			} else {
 				prefs.shuffle = false;
 			}
-            update_headset_mode(settings);
+		update_headset_mode(settings);
         }
 
         void update_headset_mode(SharedPreferences settings) {
@@ -1000,6 +1006,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
             }
 	    return true;	
 	}
+
 
     	@Override
         public void onCreate(Bundle savedInstanceState) {
@@ -1492,7 +1499,14 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	@Override
 	public void onActivityResult (int requestCode, int resultCode, Intent data) {
 		log_msg("onActivityResult: request " + requestCode + " result " + resultCode);
+		int cur_dev = prefs.device;
+		int cur_card = prefs.card;	
 		prefs.parse_devstring();	
+		if((cur_dev != prefs.device || cur_card != prefs.card) && srv != null) {
+			try {
+				if(srv.is_running() || srv.is_paused()) srv.stop();
+			} catch (Exception e) { }
+		}		
 		update_device_settings();
 	}    	
 
