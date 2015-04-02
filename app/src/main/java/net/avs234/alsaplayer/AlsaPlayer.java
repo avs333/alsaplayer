@@ -103,7 +103,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	private void log_err(String msg) {
     		Log.e(getClass().getSimpleName(), msg);
     	}
-  		
+	
     	// UI elements defined in layout xml file.
     	private LinearLayout layout_background;
     	private LinearLayout LinearLayout01; 
@@ -156,9 +156,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			}
     	};
 
-    private void setTitle(String title) {
-        getSupportActionBar().setSubtitle(title);
-    }
+	private void setTitle(String title) {
+	    getSupportActionBar().setSubtitle(title);
+	}
     	
     	// On connection, obtain the service interface and setup screen according to current server state 
     	private ServiceConnection conn = null;
@@ -1503,10 +1503,11 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 		int cur_card = prefs.card;	
 		prefs.parse_devstring();	
 		if((cur_dev != prefs.device || cur_card != prefs.card) && srv != null) {
+			log_msg("switching from " + cur_card + ":" + cur_dev + " to " + prefs.card + ":" + prefs.device);
 			try {
 				if(srv.is_running() || srv.is_paused()) srv.stop();
 			} catch (Exception e) { }
-		}		
+		}
 		update_device_settings();
 	}    	
 
@@ -1517,6 +1518,11 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	 		//showDialog(SETTINGS_DLG);
     	 		Intent i = new Intent(this, Preferences.class);
 			log_msg("starting prefs activity");
+			String devinfo = null;
+			try {
+				if(srv != null) devinfo = srv.get_devinfo();
+				i.putExtra("devinfo", devinfo);
+			} catch (Exception e) { log_err("error getting service context"); }
     	 		startActivityForResult(i, 22);
 	    	     	return true;
     	     	
@@ -2077,7 +2083,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		}
     		fr.close();
 
-			// First two bytes are equals to Byte Order Mark
+			// First two bytes are Byte Order Mark
 			// for Little Endian (0xFFFE) or Big Endian (0xFEFF).
 			return (bytes[0] == -1 && bytes[1] == -2)
 					|| (bytes[0] == -2 && bytes[1] == -1);

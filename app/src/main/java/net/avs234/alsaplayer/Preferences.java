@@ -15,25 +15,32 @@ import java.util.*;
 import android.util.Log;
 
 public class Preferences extends PreferenceActivity {
-
     private void log_msg(String msg) {
 	Log.i(getClass().getSimpleName(), msg);
     }
 
+    private String devinfo = null;
+	
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setPreferenceScreen(createPreferenceHierarchy());
+	devinfo = getIntent().getStringExtra("devinfo");	
     }
     
     @Override
 	protected Dialog onCreateDialog(int id) {
 		switch (id) {
 		case 0:
-            return new AlertDialog.Builder(this)
-                .setIcon(R.drawable.new_icon)
-                .setTitle(R.string.app_name)
-                .setMessage(R.string.strAbout)
-                .create();
+	            return new AlertDialog.Builder(this)
+        	        .setIcon(R.drawable.new_icon)
+	                .setTitle(R.string.app_name)
+	                .setMessage(R.string.strAbout)
+	                .create();
+		case 1:
+			if(devinfo == null) devinfo = "Please re-enter settings";
+			return new AlertDialog.Builder(this)
+				.setTitle(R.string.strDeviceInfo)
+				.setMessage(devinfo).create();
 		}
 		return null;
 	}
@@ -88,13 +95,29 @@ public class Preferences extends PreferenceActivity {
 			vals.add(s.substring(0,5));
 		}
 	} catch (Exception e) { log_msg("exception!"); e.printStackTrace(); }
-
 	device.setEntries(ents.toArray(new String[ents.size()]));
 	device.setEntryValues(vals.toArray(new String[vals.size()]));
+
 	devsCat.addPreference(device);
 
 	if(device.getValue() == null) device.setValueIndex(0);
 
+	device.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+		public boolean onPreferenceChange(Preference preference, Object newValue) {
+			devinfo = null;	
+			return true;
+		}
+	});
+
+	PreferenceScreen info = getPreferenceManager().createPreferenceScreen(this);
+        info.setOnPreferenceClickListener(new OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference p) {
+                        showDialog(1);
+                        return false;
+                }
+        });
+	info.setTitle(R.string.strDeviceInfo);
+	devsCat.addPreference(info);
 	/* ************************* */
         
         PreferenceCategory alsaplayerPrefCat = new PreferenceCategory(this);
@@ -103,11 +126,10 @@ public class Preferences extends PreferenceActivity {
         
         PreferenceScreen alsaplayerPrefAbout = getPreferenceManager().createPreferenceScreen(this);
         alsaplayerPrefAbout.setOnPreferenceClickListener(new OnPreferenceClickListener() {
-			
-			public boolean onPreferenceClick(Preference p) {
-				showDialog(0);
-				return false;
-			}
+		public boolean onPreferenceClick(Preference p) {
+			showDialog(0);
+			return false;
+		}
         });
         alsaplayerPrefAbout.setTitle(R.string.strAbout1);
         alsaplayerPrefCat.addPreference(alsaplayerPrefAbout);

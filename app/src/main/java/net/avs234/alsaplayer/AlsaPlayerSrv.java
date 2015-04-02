@@ -5,6 +5,8 @@ import java.io.File;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -63,6 +65,8 @@ public class AlsaPlayerSrv extends Service {
 	public static native int []	extractFlacCUE(String file);
 
 	public static native String []  getAlsaDevices();
+	public static native String	getCurrentDeviceInfo(int ctx);
+
 	public static native boolean	isUsbCard(int card); 
 	public static native boolean	isOffloadDevice(int card, int device); 
 	
@@ -81,7 +85,7 @@ public class AlsaPlayerSrv extends Service {
 	public static final int LIBLOSSLESS_ERR_AU_SETUP = 9;
 	public static final int LIBLOSSLESS_ERR_AU_START = 10;
 	public static final int LIBLOSSLESS_ERR_IO_WRITE = 11;
-	public static 	final int LIBLOSSLESS_ERR_IO_READ = 12;
+	public static final int LIBLOSSLESS_ERR_IO_READ = 12;
 	public static final int LIBLOSSLESS_ERR_DECODE = 13;
 	public static final int LIBLOSSLESS_ERR_OFFSET = 14;
 	public static final int LIBLOSSLESS_ERR_NOMEM = 15;
@@ -90,7 +94,9 @@ public class AlsaPlayerSrv extends Service {
 	// Actually, it's a pointer to struct playback_ctx, see native code.
 	// Used in all subsequent calls of native functions.
 	private static int ctx = 0;
-		
+
+	public static String currentDevInfo = null;	
+	
 	public static final int MODE_NONE = 0;
 	public static final int MODE_ALSA = 1;
 
@@ -106,11 +112,11 @@ public class AlsaPlayerSrv extends Service {
 	// Superuser shell
 	private static Shell.Interactive suShell = null;
 	
-	private void log_msg(String msg) {
-		Log.i(getClass().getSimpleName(), msg);
+	private static void log_msg(String msg) {
+		Log.i("AlsaPlayerSrv", msg);
 	}
-	private void log_err(String msg) {
-		Log.e(getClass().getSimpleName(), msg);
+	private static void log_err(String msg) {
+		Log.e("AlsaPlayerSrv", msg);
 	}
 
 	// process headset insert/remove events
@@ -127,7 +133,7 @@ public class AlsaPlayerSrv extends Service {
 	private static int total_cue_len = 0;
 	
 	// Callback to be called from native code
-	
+
 	public static void updateTrackLen(int time) {
 		if(last_cue_start == -1) {
 			total_cue_len = time;	// track time already updated from the cue, just save total length for the last track  
@@ -135,7 +141,7 @@ public class AlsaPlayerSrv extends Service {
 		}
 		curTrackLen = time - last_cue_start;
 	}
-	
+
 	// Callback used to send new track name or error status to the interface thread.
 	
 	private static final RemoteCallbackList<IAlsaPlayerSrvCallback> cBacks = new RemoteCallbackList<IAlsaPlayerSrvCallback>();
@@ -383,6 +389,8 @@ public class AlsaPlayerSrv extends Service {
 		        cur_mode = MODE_ALSA;
 			cur_card = card_no;
 			cur_device = dev_no;
+			currentDevInfo = getCurrentDeviceInfo(ctx);
+			log_msg(currentDevInfo);
 	           	return true;
 		}
 			
@@ -676,6 +684,7 @@ public class AlsaPlayerSrv extends Service {
 		public int	get_cur_mode()	{ return plist.cur_mode; }
 		public String	get_cur_dir()	{ return plist.dir; }
 		public int	get_cur_pos()	{ return plist.cur_pos; }
+		public String	get_devinfo()	{ return (ctx != 0) ? getCurrentDeviceInfo(ctx) : null; }
 		public int	get_cur_seconds()		{ return plist.getCurPosition(); }
 		public int	get_track_duration()		{ return plist.getDuration(); }
 		public int	get_cur_track_start() 	{ return curTrackStart; }
@@ -835,7 +844,7 @@ public class AlsaPlayerSrv extends Service {
 	////////////////////////////////////////////////////
 	//////////  Access-related stuff.
 
-	public boolean checkSetDevicePermissions(int card, int device) {
+	public static boolean checkSetDevicePermissions(int card, int device) {
 
 		boolean okay;
 
@@ -851,8 +860,8 @@ public class AlsaPlayerSrv extends Service {
 			try {
 				suShell.addCommand(new String[] {
                                         "chcon u:object_r:device:s0 /dev/snd",
+                                        "chcon u:object_r:zero_device:s0 " + devpath,
                                         "chmod 0666 " + devpath,
-                                        "chcon u:object_r:zero_device:s0 " + devpath
                                 });
 				suShell.waitForIdle();
 				dev = new File(devpath);
@@ -885,8 +894,8 @@ public class AlsaPlayerSrv extends Service {
 		}
 		try {	
 			suShell.addCommand(new String[] {
-				"chmod 0666 " + devpath,
-				"chcon u:object_r:zero_device:s0 " + devpath
+				"chcon u:object_r:zero_device:s0 " + devpath,
+				"chmod 0666 " + devpath
 			});
 			suShell.waitForIdle();
 	
@@ -910,7 +919,7 @@ public class AlsaPlayerSrv extends Service {
 	    if(suShell == null) suShell = (new Shell.Builder()).useSU().open();
 
 	    /* make sure that controls for all currently connected devices are prepared */
-	    Log.i("AlsaPlayerSrv", "getDevices entry");
+	    log_msg("getDevices entry");
 	    while(true) {	
 		String devpath = "/dev/snd/controlC" + card;
 		File ctl = new File(devpath);
@@ -924,12 +933,12 @@ public class AlsaPlayerSrv extends Service {
 			});
 			suShell.waitForIdle();
 		} catch(Exception e) {
-		    Log.e("AlsaPlayerSrv", "exception in getDevices");
+		    log_err("exception in getDevices");
 		    return null;	
 		}
 	    }
-	    Log.i("AlsaPlayerSrv", "getDevices: premissions set");
+	    log_msg("getDevices: premissions set");
 	    return getAlsaDevices();
 	}
-	
+
 }

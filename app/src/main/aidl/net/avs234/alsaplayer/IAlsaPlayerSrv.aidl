@@ -23,6 +23,7 @@ interface IAlsaPlayerSrv {
 	int 	get_cur_mode();
 	String  get_cur_dir();
 	int	get_cur_pos();
+	String	get_devinfo();
 	String  get_cur_track_source();
 	int	get_cur_seconds();
 	int	get_track_duration();

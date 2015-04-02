@@ -8,6 +8,7 @@ typedef struct _alsa_priv {
     /* per device params */	
     int card, device;
     char *card_name;
+    char *devinfo;
     void *xml_dev;				/* device xml data handle */
     int is_offload;				/* compressed stream playback */
     int is_mmapped;				/* mmapped playback, not implemented yet */

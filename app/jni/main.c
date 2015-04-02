@@ -552,6 +552,12 @@ static jobjectArray get_devices(JNIEnv *env, jobject obj)
     return ja;
 }
 
+static jstring current_device_info(JNIEnv *env, jobject obj, playback_ctx *ctx)
+{
+    char *c = alsa_current_device_info(ctx);
+    return c ? (*env)->NewStringUTF(env,c) : 0;
+}
+
 static jboolean libinit(JNIEnv *env, jobject obj, jint sdk) 
 {
     return true;
@@ -613,6 +619,7 @@ static JNINativeMethod methods[] = {
  { "audioPlay", "(ILjava/lang/String;II)I", (void *) audio_play },
  { "extractFlacCUE", "(Ljava/lang/String;)[I", (void *) extract_flac_cue },
  { "getAlsaDevices", "()[Ljava/lang/String;", (void *) get_devices },
+ { "getCurrentDeviceInfo", "(I)Ljava/lang/String;", (void *) current_device_info },
  { "isUsbCard", "(I)Z", (void *) alsa_is_usb_card },
  { "inOffloadMode", "(I)Z", (void *) in_offload_mode },
  { "isOffloadDevice", "(II)Z", (void *) alsa_is_offload_device },

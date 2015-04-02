@@ -4,7 +4,8 @@
 #include "bitstream.h"
 
 #define MAX_CHANNELS 6       /* Maximum supported channels, only left/right will be played back */
-#define MAX_BLOCKSIZE 4608   /* Maxsize in samples of one uncompressed frame */
+//#define MAX_BLOCKSIZE 4608   /* Maxsize in samples of one uncompressed frame */
+#define MAX_BLOCKSIZE 16384   /* Maxsize in samples of one uncompressed frame */
 #define MAX_FRAMESIZE 65536  /* Maxsize in bytes of one compressed frame */
 
 #define FLAC_OUTPUT_DEPTH 29 /* Provide samples left-shifted to 28 bits+sign */

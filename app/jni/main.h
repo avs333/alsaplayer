@@ -115,6 +115,7 @@ extern int alsa_is_offload(playback_ctx *ctx);
 extern int alsa_get_devices(char ***dev_names);
 extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);
 extern int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device);
+extern char *alsa_current_device_info(playback_ctx *ctx);
 #endif
 
 /* alsa_offload.c */
