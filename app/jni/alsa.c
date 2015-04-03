@@ -349,7 +349,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		c = cat_str(c, "\n");
 		priv->supp_codecs_mask |= (1 << i);
 	    }
-#if 0
+#if 1
 	    if(priv->supp_codecs_mask == 0) { 
 		log_err("this device cannot play any sane compressed streams");
 		ret = LIBLOSSLESS_ERR_AU_SETUP;

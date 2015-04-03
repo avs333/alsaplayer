@@ -95,7 +95,6 @@ public class AlsaPlayerSrv extends Service {
 	// Used in all subsequent calls of native functions.
 	private static int ctx = 0;
 
-	public static String currentDevInfo = null;	
 	
 	public static final int MODE_NONE = 0;
 	public static final int MODE_ALSA = 1;
@@ -389,8 +388,6 @@ public class AlsaPlayerSrv extends Service {
 		        cur_mode = MODE_ALSA;
 			cur_card = card_no;
 			cur_device = dev_no;
-			currentDevInfo = getCurrentDeviceInfo(ctx);
-			log_msg(currentDevInfo);
 	           	return true;
 		}
 			

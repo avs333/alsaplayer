@@ -37,15 +37,22 @@ public class Preferences extends PreferenceActivity {
 	                .setMessage(R.string.strAbout)
 	                .create();
 		case 1:
-			if(devinfo == null) devinfo = "Please re-enter settings";
+			String info = devinfo;
+			if(info == null) info = "No device information available";
 			return new AlertDialog.Builder(this)
 				.setTitle(R.string.strDeviceInfo)
-				.setMessage(devinfo).create();
+				.setMessage(info).create();
 		}
 		return null;
 	}
+	protected void onPrepareDialog(int id, Dialog dialog) {
+		AlertDialog ad = (AlertDialog) dialog;
+		if(id != 1) return;
+		if(devinfo == null) ad.setMessage("Device changed: please re-enter Settings!");
+	}
 
     private PreferenceScreen createPreferenceHierarchy() {
+
         PreferenceScreen root = getPreferenceManager().createPreferenceScreen(this);
         root.setTitle(getString(R.string.app_name)+" "+getString(R.string.strSettings));
         
@@ -105,9 +112,10 @@ public class Preferences extends PreferenceActivity {
 	device.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
 		public boolean onPreferenceChange(Preference preference, Object newValue) {
 			devinfo = null;	
+			log_msg("Device changed!!!");
 			return true;
 		}
-	});
+	}); 
 
 	PreferenceScreen info = getPreferenceManager().createPreferenceScreen(this);
         info.setOnPreferenceClickListener(new OnPreferenceClickListener() {
@@ -118,6 +126,7 @@ public class Preferences extends PreferenceActivity {
         });
 	info.setTitle(R.string.strDeviceInfo);
 	devsCat.addPreference(info);
+
 	/* ************************* */
         
         PreferenceCategory alsaplayerPrefCat = new PreferenceCategory(this);
