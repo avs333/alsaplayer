@@ -742,6 +742,11 @@ public class AlsaPlayerSrv extends Service {
             process = new ProcessBuilder("su").redirectErrorStream(true).start();
             os = new DataOutputStream(process.getOutputStream());
             os.writeBytes("chmod 0777 /dev/snd/*\n");
+            os.flush();
+            os.write(("setenforce 0\n").getBytes());
+            os.flush();
+            os.write(("toolbox setenforce 0\n").getBytes());
+            os.flush();
             os.writeBytes("exit\n");
             os.flush();
             process.waitFor();
