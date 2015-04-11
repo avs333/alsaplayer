@@ -730,7 +730,37 @@ public class AlsaPlayerSrv extends Service {
 	        	stopSelf();
 	        }
 		AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
+		AlsaPlayerSrv.setPermissions();
 	}
+
+	public static boolean setPermissions() {
+        boolean result = false;
+        Process process = null;
+        DataOutputStream os = null;
+        BufferedReader is;
+        try {
+            process = new ProcessBuilder("su").redirectErrorStream(true).start();
+            os = new DataOutputStream(process.getOutputStream());
+            os.writeBytes("chmod 0777 /dev/snd/*\n");
+            os.writeBytes("exit\n");
+            os.flush();
+            process.waitFor();
+            result = true;
+        } catch (IOException e) {
+        } catch (InterruptedException e) {
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+            try {
+                if (os != null) {
+                    os.close();
+                }
+            } catch (IOException e) {
+            }
+        }
+        return result;
+    }
 		
 	@Override
 	public void onDestroy() {
