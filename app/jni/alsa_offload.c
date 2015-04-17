@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -64,6 +65,27 @@ static ssize_t write_offload(playback_ctx *ctx, void *buf, size_t count)
     return written;	
 }
 
+static void convert24_3le_le(void *src, void *dst, int src_bytes)
+{
+    int k;	
+    int8_t *s = (int8_t *) src;
+    int8_t *d = (int8_t *) dst;
+	for(k = 0; k < src_bytes/3; k++) {
+#if 0
+	    d[0] = s[0];	
+	    d[1] = s[1];	
+	    d[2] = s[2];	
+	    d[3] = (s[2] < 0) ? 0xff : 0;
+#else		/* wtf??? */
+	    d[0] = 0;
+	    d[1] = s[0];	
+	    d[2] = s[1];	
+	    d[3] = s[2];	
+#endif
+	    s += 3; d += 4;
+	}
+} 
+
 /* fd = opened source file descriptor, start_offset points to data after 
    compressed file header if any.
    ctx is assumed to contain all required file header data.
@@ -74,7 +96,7 @@ static ssize_t write_offload(playback_ctx *ctx, void *buf, size_t count)
 int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 {
     alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;
-    int k, ret = 0;
+    int k, read_size, write_size, ret = 0;
     char tmp[128];	
     struct snd_compr_caps caps;
     struct snd_compr_params params;
@@ -83,7 +105,9 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
     size_t cur_map_len;         /* size of file chunk currently mapped */
     const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;
     void *mptr, *mend, *mm = MAP_FAILED;
-
+    void *write_buff = 0;
+    struct timeval tstart, tstop, tdiff;
+ 	
 	pthread_mutex_lock(&ctx->mutex);
 	if(ctx->state != STATE_STOPPED) {
 	    log_info("context live, stopping");
@@ -172,6 +196,10 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		params.codec.id = SND_AUDIOCODEC_MP3;
 		params.codec.bit_rate = ctx->bitrate;
 		break;
+	    case FORMAT_WAV:
+		params.codec.id = SND_AUDIOCODEC_PCM;
+		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
+		break;	
 	    default:
 		log_err("unsupported playback format %d", ctx->file_format);
 		ret = LIBLOSSLESS_ERR_AU_SETUP;
@@ -201,20 +229,46 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 
 	log_info("offload playback setup succeeded");
 
+	if(ctx->file_format == FORMAT_WAV && ctx->bps == 24) {
+	    if(priv->chunk_size & 3) {
+		log_err("chunk size not divisible by 4 for 24-bit stream");
+		ret = LIBLOSSLESS_ERR_AU_SETUP;
+		goto err_exit;
+	    } 	
+	    write_buff = (int8_t *) malloc(priv->chunks * priv->chunk_size);
+	    if(!write_buff) {
+		log_err("no memory");
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto err_exit;
+	    }		
+	    read_size = 3 * (priv->chunk_size/4);
+	} else {
+	    write_buff = 0;	
+	    read_size = priv->chunk_size;
+	}
+
 	/* Write full buffer initially, then start playback and continue writing  */
-	if(mend - mptr < priv->chunks * priv->chunk_size) {
+	if(mend - mptr < priv->chunks * read_size) {
 	    log_err("I'm offended, won't bother playing %d bytes.", (int) (mend - mptr));
 	    ret = LIBLOSSLESS_ERR_IO_READ;
 	    goto err_exit;	
 	}
+
+	gettimeofday(&tstart,0);
+
 	k = priv->chunks * priv->chunk_size;
-	ret = write_offload(ctx, mptr, k);
+	if(write_buff) {
+	    convert24_3le_le(mptr, write_buff, priv->chunks * read_size);
+	    ret = write_offload(ctx, write_buff, k);
+	} else ret = write_offload(ctx, mptr, k);
+
 	if(ret != k) {
 	    log_err("error writing initial chunks: ret=%d", ret);
 	    ret = LIBLOSSLESS_ERR_IO_WRITE;
 	    goto err_exit;	
 	}
-	mptr += k;
+	mptr += priv->chunks * read_size;
+
 	log_info("starting playback");
 	if(ioctl(priv->fd, SNDRV_COMPRESS_START) != 0) {
 	    log_err("failed to start playback");
@@ -234,8 +288,8 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		log_info("gather I should stop");	/* or return negative if we're stopped. */
 		break;				
 	    }	
-	    k = (mend - mptr < priv->chunk_size) ? mend - mptr : priv->chunk_size;
-	    if(k < priv->chunk_size && cur_map_off + cur_map_len != flen) {        /* too close to end of mapped region, but not at eof */
+	    k = (mend - mptr < read_size) ? mend - mptr : read_size;
+	    if(k < read_size && cur_map_off + cur_map_len != flen) {        /* too close to end of mapped region, but not at eof */
 		log_info("remapping");  
 		munmap(mm, cur_map_len);
 		off = mptr - mm;
@@ -249,26 +303,37 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		}       
 		mptr = mm + (off & pg_mask);
 		mend = mm + cur_map_len;
-		k = (mend - mptr < priv->chunk_size) ? mend - mptr : priv->chunk_size;        
+		k = (mend - mptr < read_size) ? mend - mptr : read_size;        
 		log_info("remapped");
 	    }
-	    ret = write_offload(ctx, mptr, k);	
+	    if(write_buff) {
+		convert24_3le_le(mptr, write_buff, k);
+		write_size = (4 * k)/3;
+		ret = write_offload(ctx, write_buff, write_size);
+	    } else {
+		write_size = k;
+		ret = write_offload(ctx, mptr, k);
+	    }		
 	    if(ret == 0) continue;	/* we're in PAUSE state; should block in sync_state() now. */
-	    if(ret != k) {
+	    if(ret != write_size) {
 		log_err("write error: ret=%d, errno=%d %s", ret, errno, strerror(errno));
 		ret = LIBLOSSLESS_ERR_IO_WRITE;
 		goto err_exit_unlocked;
 	    }	
 	    mptr += k;
 	}
+
 	if(mptr == mend) {
 	    log_info("draining");
 	    if(ioctl(priv->fd, SNDRV_COMPRESS_DRAIN) != 0) log_info("drain failed");
 	}
-	log_info("exiting");
+	gettimeofday(&tstop,0);
+	timersub(&tstop, &tstart, &tdiff);
+	log_info("playback complete in %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
 	close(fd);
 	audio_stop(ctx, 0);
 	munmap(mm, cur_map_len);
+	if(write_buff) free(write_buff);
 	return 0;
 
     err_exit:
@@ -277,6 +342,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	close(fd);
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
 	if(ctx->state != STATE_STOPPED) audio_stop(ctx, 0);
+	if(write_buff) free(write_buff);
     return ret;	
 } 
 
@@ -425,7 +491,11 @@ int mp3_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	}	
 	if(memcmp(&hdr, "ID3", 3) == 0) {
 	    lseek(fd, 0, SEEK_SET);
-	    read(fd, &tmp, 10);	
+	    if(read(fd, &tmp, 10) != 10) {
+		log_err("read error for file %s", file);	
+		ret = LIBLOSSLESS_ERR_IO_READ;
+		goto done;  
+	    }	
 	    offs = tmp[6] << 21;
 	    offs += tmp[7] << 14;
 	    offs += tmp[8] << 7;

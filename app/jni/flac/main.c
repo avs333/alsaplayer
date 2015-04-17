@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -370,6 +371,8 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
     const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;    
     int bsz, stride;   
     const playback_format_t *format;	
+    struct timeval tstart, tstop, tdiff;
+
 #ifdef ANDROID
 	file = (*env)->GetStringUTFChars(env,jfile,NULL);
 	if(!file) {
@@ -451,6 +454,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    off = lseek(fd, 0, SEEK_CUR);
 	    if(alsa_is_offload(ctx)) {
 		flac_exit(fc);
+		munmap(mm, cur_map_len);
 		log_info("switching to offload playback");
 		update_track_time(env, obj, ctx->track_time);
 		return alsa_play_offload(ctx,fd,off);
@@ -478,7 +482,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	    mend = mm + cur_map_len;
 	}
 
-	ret = audio_start(ctx);
+	ret = audio_start(ctx, 1);
 	if(ret) goto done;
 
 	scale = FLAC_OUTPUT_DEPTH - fc->bps;
@@ -493,6 +497,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	}
 
 	update_track_time(env, obj, ctx->track_time);
+	gettimeofday(&tstart,0);
 
 	while(mptr < mend) {
 
@@ -599,10 +604,12 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	if(pcmbuf) free(pcmbuf);
 	if(fd >= 0) close(fd);
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
-
-	log_info("stopping audio on exit");
+	if(ret == 0) {
+	    gettimeofday(&tstop,0);
+	    timersub(&tstop, &tstart, &tdiff);
+	    log_info("playback complete in %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
+	} else log_info("exiting, ret=%d, err=%d", ret, ctx->alsa_error);
 	audio_stop(ctx, 0);
-	log_info("exiting, ret=%d, err=%d", ret, ctx->alsa_error);
 	
     return ret;
 }

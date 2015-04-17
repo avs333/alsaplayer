@@ -249,7 +249,7 @@ int audio_stop(playback_ctx *ctx, int now)
 }
 
 /* Stream parameters must be set by decoder before this call */
-int audio_start(playback_ctx *ctx)
+int audio_start(playback_ctx *ctx, int buffered_write)
 {
     int k, ret;
     int period_size;
@@ -271,6 +271,11 @@ int audio_start(playback_ctx *ctx)
 
 	ret = alsa_start(ctx);
 	if(ret != 0) goto err_init;
+
+	ctx->buff = 0;
+	ctx->audio_thread = 0;
+
+	if(!buffered_write) goto done;
 
 	/* format/period_size must be known after alsa_start() */
 	format = alsa_get_format(ctx);
@@ -299,12 +304,12 @@ Linux pc, period size 9648:
 	    log_err("cannot create buffer");
 	    goto err_init;	
         }
-	ctx->audio_thread = 0;
 	if(pthread_create(&ctx->audio_thread, 0, audio_write_thread, ctx) != 0) {
 	    log_err("cannot create thread");
 	    goto err_init;
 	}
 
+    done:
 	ctx->state = STATE_PLAYING;
 	ctx->written = 0;
 	ctx->stopped = 0;
@@ -511,6 +516,9 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfil
 		break;
 	    case FORMAT_MP3:
 		ret = mp3_play(env, obj, ctx, jfile, start);
+		break;
+	    case FORMAT_WAV:
+		ret = wav_play(env, obj, ctx, jfile, start); 	
 		break;
 	    default:
 		ret = LIBLOSSLESS_ERR_FORMAT;

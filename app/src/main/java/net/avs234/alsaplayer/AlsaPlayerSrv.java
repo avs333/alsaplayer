@@ -1,7 +1,7 @@
 package net.avs234.alsaplayer;
 
 import java.io.DataOutputStream;
-import java.io.File;
+import java.io.*;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.List;
@@ -460,6 +460,11 @@ public class AlsaPlayerSrv extends Service {
 							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
 							if(ctx == 0) k = 1;
 							else k = audioPlay(ctx, files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
+						} else if(files[cur_pos].endsWith(".wav") || files[cur_pos].endsWith(".WAV")) {
+							cur_mode = MODE_ALSA;
+							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
+							if(ctx == 0) k = 1;
+							else k = audioPlay(ctx, files[cur_pos], FORMAT_WAV, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".mp3") || files[cur_pos].endsWith(".MP3")) {
 							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
 							boolean offload = (ctx != 0) ? inOffloadMode(ctx) : false;
@@ -735,7 +740,7 @@ public class AlsaPlayerSrv extends Service {
 
 	public static boolean setPermissions() {
         boolean result = false;
-        Process process = null;
+        java.lang.Process process = null;
         DataOutputStream os = null;
         BufferedReader is;
         try {

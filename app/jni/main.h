@@ -81,7 +81,7 @@ typedef struct {
 } playback_ctx;
 
 /* main.c */
-extern int audio_start(playback_ctx *ctx);
+extern int audio_start(playback_ctx *ctx, int buffered_write);
 extern int audio_stop(playback_ctx *ctx, int abort);
 extern int audio_write(playback_ctx *ctx, void *buff, int size);
 extern int check_state(playback_ctx *ctx, const char *func);
@@ -138,6 +138,9 @@ extern JNIEXPORT jintArray JNICALL extract_flac_cue(JNIEnv *env, jobject obj, js
 
 /* ape/main.c */
 extern int ape_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
+
+/* wav_main.c */
+extern int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
 
 /* tinyxml2/xmlparser.cpp */
 struct nvset {

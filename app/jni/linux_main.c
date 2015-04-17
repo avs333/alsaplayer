@@ -23,6 +23,11 @@
 #define __USE_BSD  1
 #include <getopt.h>
 
+#ifdef __ANDROID__
+extern int security_getenforce(void);
+extern int security_setenforce(int value);
+#endif
+
 int quiet_run = 0;
 
 static playback_ctx *ctx = 0;
@@ -107,6 +112,7 @@ int main(int argc, char **argv)
 	if(optind >= argc) return usage(argv[0]);
 
 	args->file = strdup(argv[optind]);
+	args->ftype = -1;
 	c = strrchr(args->file, '.');
 	if(c) {
 	    if(strcmp(c, ".flac") == 0) {
@@ -114,6 +120,9 @@ int main(int argc, char **argv)
 		if(args->track) printf("not a cue file, track specification ignored\n");
 	    } else if(strcmp(c, ".ape") == 0) {
 		args->ftype = FORMAT_APE;	
+		if(args->track) printf("not a cue file, track specification ignored\n");
+	    } else if(strcmp(c, ".wav") == 0) {
+		args->ftype = FORMAT_WAV;	
 		if(args->track) printf("not a cue file, track specification ignored\n");
 	    } else if(strcmp(c, ".mp3") == 0) {
 		args->ftype = FORMAT_MP3;	
@@ -127,8 +136,13 @@ int main(int argc, char **argv)
 	    }
 	}
 
-	if(args->ftype == 0) return printf("file extension must be .flac, .ape or .mp3\n");
-
+	if(args->ftype == -1) return printf("file extension must be .flac, .ape or .mp3\n");
+#ifdef __ANDROID__
+	if(security_getenforce() == 1) {
+	    printf("trying to switch into permissive mode\n");	
+	    security_setenforce(0);
+	}
+#endif
 	ctx = (playback_ctx *) audio_init(0, 0, 0, card, device);
 	if(!ctx) return -1;	
 
@@ -182,7 +196,7 @@ static int parse_cue(struct call_args *args) {
 		    const struct {
 			const char *ext; 
 			int ftype;
-		    } *ep, ee[] = { { ".flac", FORMAT_FLAC }, { ".ape", FORMAT_APE }, { ".mp3", FORMAT_MP3 }, { 0, 0 }  };
+		    } *ep, ee[] = { { ".flac", FORMAT_FLAC }, { ".ape", FORMAT_APE }, { ".mp3", FORMAT_MP3 }, { ".wav", FORMAT_WAV }, { 0, 0 }  };
 		    for(ep = &ee[0]; ep->ext; ep++) {
 			*ce = 0; 
 			strcat(args->file, ep->ext);
@@ -196,6 +210,7 @@ static int parse_cue(struct call_args *args) {
 		    if(strcmp(ce, ".flac") == 0) args->ftype = FORMAT_FLAC;
 		    else if(strcmp(ce, ".ape") == 0) args->ftype = FORMAT_APE;
 		    else if(strcmp(ce, ".mp3") == 0) args->ftype = FORMAT_MP3;
+		    else if(strcmp(ce, ".wav") == 0) args->ftype = FORMAT_WAV;
 		    else return printf("error: cue references file %s with unsupported extension\n", args->file);
 		}
 		if(args->track == 0) return 0;

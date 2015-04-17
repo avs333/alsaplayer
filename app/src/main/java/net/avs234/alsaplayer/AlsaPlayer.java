@@ -1522,7 +1522,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			try {
 				if(srv != null) devinfo = srv.get_devinfo();
 				i.putExtra("devinfo", devinfo);
-			} catch (Exception e) { log_err("error getting service context"); }
+			} catch (Exception e) { log_err("error getting device info"); }
     	 		startActivityForResult(i, 22);
 	    	     	return true;
     	     	
@@ -1630,8 +1630,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		else if(s.endsWith(".flac") || s.endsWith(".FLAC")) return 5;	// not using hasAudioExt to
     		else if(s.endsWith(".ape") || s.endsWith(".APE")) return 4;	// not using hasAudioExt to
  		// Mp3support
-    		else if(s.endsWith(".wav") || s.endsWith(".WAV")) return 10;
-    		else if(s.endsWith(".mp3") || s.endsWith(".MP3")) return 10;
+    		else if(s.endsWith(".wav") || s.endsWith(".WAV")) return 6;
+    		else if(s.endsWith(".mp3") || s.endsWith(".MP3")) return 7;
     		else if(s.endsWith(".wma") || s.endsWith(".WMA")) return 10;
     		else if(s.endsWith(".ogg") || s.endsWith(".OGG")) return 10;
     		else if(s.endsWith(".3gpp") || s.endsWith(".3GPP")) return 10;

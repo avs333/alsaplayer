@@ -277,7 +277,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	mptr = mm + (off & pg_mask);
 	mend = mm + cur_map_len;
 
-	ret = audio_start(ctx);
+	ret = audio_start(ctx, 1);
 	if(ret != 0) goto done;
 	if(ctx->rate_dec) {
 	    ret = LIBLOSSLESS_ERR_INIT;

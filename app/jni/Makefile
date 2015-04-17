@@ -14,6 +14,7 @@ CXX=$(BINPATH)/arm-linux-androideabi-g++
 CFLAGS += --sysroot=$(SYSROOT) -Wl,-pie -march=armv7-a -DANDLINUX
 CXXFLAGS += -I$(STL)/include -I$(STL)/libs/armeabi-v7a/include
 LDFLAGS += -L$(STL)/libs/armeabi-v7a -lgnustl_static
+LDFLAGS += -Llib -lselinux
 .PHONY: nondk
 ifeq ($(strip $(NDK)),)
 nondk: ; $(error ndk-build not found in PATH, please try "NDK=/full/path/to/ndk make android=1")
@@ -22,7 +23,7 @@ else
 LDFLAGS += -lpthread
 endif
 
-SRC =	flac/shndec.c  flac/main.c  flac/decoder.c  buffer.c alsa.c alsa_offload.c main.c linux_main.c  		\
+SRC =	flac/shndec.c  flac/main.c  flac/decoder.c  buffer.c alsa.c alsa_offload.c main.c linux_main.c wav_main.c	\
 	ape/entropy.c  ape/filter-pre.c  ape/parser.c   ape/decoder.c  ape/main.c  ape/predictor.c	
 
 SRCX =	tinyxml/tinyxml2.cpp  tinyxml/xmlparser.cpp
@@ -33,7 +34,7 @@ OBJX = $(SRCX:.cpp=.o)
 CFLAGS += -g -O -Wall -DBUILD_STANDALONE -finline-functions -I. -Iinclude
 CXXFLAGS += $(CFLAGS)
 
-exe_file = flacplay
+exe_file = alsaplayer
 
 all = $(exe_file)
 
