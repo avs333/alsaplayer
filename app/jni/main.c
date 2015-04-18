@@ -121,7 +121,7 @@ static void *audio_write_thread(void *a)
 #ifdef TEST_TIMING
 		    gettimeofday(&tstart,0);
 #endif
-		    i = alsa_write(ctx, k/f2b);
+		    i = alsa_write(ctx, 0, k/f2b);
 #ifdef TEST_TIMING
 		    gettimeofday(&tstop,0);
 		    timersub(&tstop, &tstart, &tdiff);
@@ -457,6 +457,7 @@ jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx)
     }	
     log_info("audio_exit: ctx=%p",ctx);
     audio_stop(ctx, 1);
+    alsa_stop(ctx); /* just to set stop mixer controls in case it wasn't playing  */	
     alsa_exit(ctx);
     alsa_free_mixer_controls(ctx);
     if(ctx->xml_mixp) xml_mixp_close(ctx->xml_mixp);

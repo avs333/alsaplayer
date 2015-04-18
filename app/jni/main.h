@@ -16,8 +16,8 @@ extern "C" {
 #endif
 #else
 extern int quiet_run;
-#define log_info(fmt, args...) do { if(!quiet_run) printf("liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
-#define log_err(fmt, args...)  do { fprintf(stderr, "liblossless: [%s] " fmt "\n", __func__, ##args); } while(0)
+#define log_info(fmt, args...) do { if(!quiet_run) printf("[%s] " fmt "\n", __func__, ##args); } while(0)
+#define log_err(fmt, args...)  do { fprintf(stderr, "[%s] " fmt "\n", __func__, ##args); } while(0)
 #endif
 
 #ifndef timeradd
@@ -99,7 +99,7 @@ extern jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx);
 extern int alsa_select_device(playback_ctx *ctx, int card, int device);
 extern int alsa_start(playback_ctx *ctx);
 extern void alsa_stop(playback_ctx *ctx);
-extern ssize_t alsa_write(playback_ctx *ctx, size_t count);
+extern ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count);
 extern bool alsa_pause(playback_ctx *ctx);
 extern bool alsa_resume(playback_ctx *ctx);
 extern bool alsa_set_default_volume(playback_ctx *ctx);
@@ -115,7 +115,11 @@ extern int alsa_is_offload(playback_ctx *ctx);
 extern int alsa_get_devices(char ***dev_names);
 extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);
 extern int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device);
+#endif
 extern char *alsa_current_device_info(playback_ctx *ctx);
+#ifndef ANDROID
+extern char *ext_cards_file;
+extern int forced_chunks, forced_chunk_size;
 #endif
 
 /* alsa_offload.c */

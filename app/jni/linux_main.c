@@ -23,7 +23,7 @@
 #define __USE_BSD  1
 #include <getopt.h>
 
-#ifdef __ANDROID__
+#ifdef ANDLINUX
 extern int security_getenforce(void);
 extern int security_setenforce(int value);
 #endif
@@ -47,7 +47,20 @@ void bye(int sig)
 
 static int usage(char *prog) 
 {
-   return printf("Usage: %s [-c card] [-d device] [-s min:sec | -t track_no] [-q] <file>\n", prog);
+   printf("Usage: %s [-x file] [-c card] [-d device] [-s min:sec | -t track_no] [-p num:sz] [-q] (<-i> | <file>)\n", prog);
+   return printf(
+#ifdef ANDLINUX
+		 "-x\tspecify custom xml config (default is /sdcard/.alsaplayer/cards.xml)\n"
+#else
+		 "-x\tspecify custom xml config (default is $HOME/.alsaplayer/cards.xml)\n"
+#endif
+		 "-c/-d\tcard/device numbers, see output of 'cat /proc/asound/pcm' (defaults are 0/0)\n"
+		 "-s\tspecify start point of playback in a file\n"
+		 "-t\tspecify cue file track (audio file defined in cue must be in the same dir)\n"
+		 "-p\tforce number and size of periods (in frames) or fragments (in bytes)\n"
+		 "-q\tquiet mode, suppress extra info\n"
+		 "-i\ttest the selected device and show its information\n"
+	);
 }
 
 void *thd(void *a) 
@@ -68,9 +81,19 @@ void pause_resume(int sig) {
 
 static int parse_cue(struct call_args *args);
 
+static int test_device(int card, int device)
+{
+    ctx = (playback_ctx *) audio_init(0, 0, 0, card, device);
+    if(!ctx) return 1;
+    printf("%s\n", alsa_current_device_info(ctx));	    	
+    audio_exit(0, 0, ctx);
+    return 0; 		
+}
+
+
 int main(int argc, char **argv)
 {
-    int card = 0, device = 0, opt;
+    int card = 0, device = 0, info = 0, opt;
     char *c;
     pthread_t thread;
     sigset_t set;
@@ -85,7 +108,7 @@ int main(int argc, char **argv)
 	signal(SIGUSR1, pause_resume);	
 	signal(SIGUSR2, pause_resume);	
 
-	while ((opt = getopt(argc, argv, "c:d:s:t:q")) != -1) {
+	while ((opt = getopt(argc, argv, "c:d:s:t:qix:p:")) != -1) {
 	    switch (opt) {
 		case 'c':
 		    card = atoi(optarg);
@@ -99,16 +122,43 @@ int main(int argc, char **argv)
 		    args->min = atoi(optarg);
 		    args->sec = atoi(c+1);
 		    break;
+		case 'p':
+		    c = strchr(optarg, ':');
+		    if(!c) return printf("bad argument to -p option\n");
+		    forced_chunks = atoi(optarg);
+		    forced_chunk_size = atoi(c+1);
+		    if(!forced_chunks || !forced_chunk_size)
+			return printf("invalid number/size of periods/fragments %d/%d\n", 
+				forced_chunks, forced_chunk_size);	
+		    break;
 		case 't':
 		    args->track = atoi(optarg);
 		    break; 
 		case 'q':
 		    quiet_run = 1;
-		    break; 	
+		    break;
+		case 'i':
+		    info = 1;
+		    break;
+		case 'x':
+		    ext_cards_file = optarg;
+		    break;			
 		default: /* '?' */
 		    return usage(argv[0]);
 	    }
 	}
+#ifdef ANDLINUX
+	if(security_getenforce() == 1) {
+	    if(!quiet_run) printf("switching to permissive mode: ");	
+	    security_setenforce(0);
+	    if(!quiet_run) printf(security_getenforce() == 0 ? "okay\n" : "failed\n");	
+	}
+#endif
+	if(info) {
+	    quiet_run = 1; 
+	    return test_device(card, device);
+	}
+
 	if(optind >= argc) return usage(argv[0]);
 
 	args->file = strdup(argv[optind]);
@@ -137,12 +187,6 @@ int main(int argc, char **argv)
 	}
 
 	if(args->ftype == -1) return printf("file extension must be .flac, .ape or .mp3\n");
-#ifdef __ANDROID__
-	if(security_getenforce() == 1) {
-	    printf("trying to switch into permissive mode\n");	
-	    security_setenforce(0);
-	}
-#endif
 	ctx = (playback_ctx *) audio_init(0, 0, 0, card, device);
 	if(!ctx) return -1;	
 

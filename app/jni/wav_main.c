@@ -152,7 +152,6 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
     int i, k, read_bytes, ret = 0, fd = -1;
     int samplerate = 0, channels = 0, bps = 0, b2f;		/* b2f = bytes->frames */
     void *mptr, *mend, *mm = MAP_FAILED;
-    int8_t *src, *dst; 
     void *pcmbuf = 0; 
     const char *file = 0;
     off_t flen = 0; 
@@ -316,35 +315,24 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		i = (mend - mptr < read_bytes) ? mend - mptr : read_bytes;
 		log_info("remapped");
 	    }
-	    
-	    switch(format->fmt) {
-		case SNDRV_PCM_FORMAT_S16_LE:		
-		case SNDRV_PCM_FORMAT_S24_3LE:
-		case SNDRV_PCM_FORMAT_S32_LE:
-		    memcpy(pcmbuf, mptr, i);
-		    break;	
-		case SNDRV_PCM_FORMAT_S24_LE:
-		    src = (int8_t *) mptr;
-		    dst = (int8_t *) pcmbuf;
-		    for(k = 0; k < i/3; k++) {
-			dst[0] = src[0];	
-			dst[1] = src[1];	
-			dst[2] = src[2];	
-			dst[3] = (src[2] < 0) ? 0xff : 0;
-			src += 3; dst += 4;
-		    }
-		    break;
-		default:
-		    log_err("internal error: format not supported");
-		    ret = LIBLOSSLESS_ERR_INIT;
-		    goto done; 	
+
+	    if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) {
+		int8_t *src = (int8_t *) mptr;
+		int8_t *dst = (int8_t *) pcmbuf;
+		for(k = 0; k < i/3; k++) {
+		    dst[0] = src[0];	
+		    dst[1] = src[1];	
+		    dst[2] = src[2];	
+		    dst[3] = (src[2] < 0) ? 0xff : 0;
+		    src += 3; dst += 4;
+		}
 	    }
-	    mptr += i;	
 
 	    pthread_mutex_lock(&ctx->mutex);
             switch(ctx->state) {
-                case STATE_PLAYING:
-                    i = alsa_write(ctx, i/b2f);
+                case STATE_PLAYING:		/* for S24_LE, bytes are copied to pcmbuf (= alsa priv->buf) above */
+		    if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) k = alsa_write(ctx, 0, i/b2f);
+		    else k = alsa_write(ctx, mptr, i/b2f); /* otherwise supply direct pointer to mmapped space*/		
                     break;
                 case STATE_PAUSED:
                     pthread_mutex_unlock(&ctx->mutex);
@@ -359,10 +347,11 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		    goto done;	
             }
 	    pthread_mutex_unlock(&ctx->mutex);
-	    if(i <= 0) {
+	    if(k <= 0) {
 		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 		break;
 	    }
+	    mptr += i;	
 	}
 
     done:

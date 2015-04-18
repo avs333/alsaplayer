@@ -160,10 +160,14 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    goto err_exit;
 	}
 
+	log_info("device reports: max %d chunks of min %d size", caps.max_fragments, caps.min_fragment_size);	
+#ifndef ANDROID
+	priv->chunks = forced_chunks ? forced_chunks : caps.max_fragments;
+	priv->chunk_size = forced_chunk_size ? forced_chunk_size : caps.min_fragment_size;
+#else
 	priv->chunks = caps.max_fragments;
 	priv->chunk_size = caps.min_fragment_size;
-	log_info("device reports: max %d chunks of min %d size", priv->chunks, priv->chunk_size);	
-
+#endif
 	k = alsa_get_rate(ctx->samplerate);
 	if(k < 0) {
 	    log_err("unsupported playback rate");
@@ -217,6 +221,14 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		params.buffer.fragments, params.buffer.fragment_size); */
 
 	while(ioctl(priv->fd, SNDRV_COMPRESS_SET_PARAMS, &params) != 0) {
+#ifndef ANDROID
+	    if(forced_chunks || forced_chunk_size) {
+                log_err("failed to set forced parameters for fragments num=%d size=%d",
+                        forced_chunks, forced_chunk_size);
+		ret = LIBLOSSLESS_ERR_AU_SETUP;
+		goto err_exit;
+	    }	
+#endif
 	    priv->chunks >>= 1;
 	    if(!priv->chunks) {
 		log_err("failed to set hardware parameters");
@@ -268,6 +280,15 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    goto err_exit;	
 	}
 	mptr += priv->chunks * read_size;
+
+	if(write_buff) {	/* free extra memory */
+	    write_buff = (int8_t *) realloc(write_buff, priv->chunk_size);
+	    if(!write_buff) {
+		log_err("no memory");
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto err_exit;
+	    }		
+	}
 
 	log_info("starting playback");
 	if(ioctl(priv->fd, SNDRV_COMPRESS_START) != 0) {

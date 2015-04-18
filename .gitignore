@@ -13,4 +13,4 @@
 gradle.properties
 /app/jni/tinyxml/xmltest.c
 /libsuperuser/build
-
+/app/jni/alsaplayer

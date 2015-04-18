@@ -262,15 +262,18 @@ extern "C" struct nvset *xml_dev_find_ctls(void *xml, const char *name, const ch
     DeviceXML *m = (DeviceXML *) xml; 	
     if(!m || !m->is_valid() || m->is_card_only()) return 0;	
     XMLElement *e, *e1, *e2;
+
+
     for(e = m->get_dev_root()->FirstChildElement(); e; e = e->NextSiblingElement()) {
 	if(strcmp(e->Name(), "path") == 0 && e->Attribute("name", name)
 	   && (!value || e->Attribute("value", value))) return m->get_controls(e);
+	
 	const char *c = e->Attribute("name");
 	for(e1 = m->get_card_root()->FirstChildElement(); e1; e1 = e1->NextSiblingElement()) {
 	    if(strcmp(e1->Name(), "path") == 0 && e1->Attribute("name", c)) {
 		for(e2 = e1->FirstChildElement(); e2; e2 = e2->NextSiblingElement()) {
 		    if(strcmp(e2->Name(), "path") == 0 && e2->Attribute("name", name)
-		       && (!value || e2->Attribute("value", value))) return m->get_controls(e2);
+		       && (!value || e2->Attribute("value", value) )) return m->get_controls(e2);
 		}
 	    }	
 	}    	

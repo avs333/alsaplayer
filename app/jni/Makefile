@@ -2,6 +2,7 @@
 # use "make android=1" to build executable for android
  
 ifdef android
+# Tested with Android NDK r10d toolchain. Tweak this if you have other compiler/NDK.
 GCCVER=4.9
 ANDPLAT=android-18
 HOSTARCH=$(shell uname -m)
@@ -25,6 +26,11 @@ endif
 
 SRC =	flac/shndec.c  flac/main.c  flac/decoder.c  buffer.c alsa.c alsa_offload.c main.c linux_main.c wav_main.c	\
 	ape/entropy.c  ape/filter-pre.c  ape/parser.c   ape/decoder.c  ape/main.c  ape/predictor.c	
+
+ifdef android
+CFLAGS += -DCPU_ARM -DARM_ARCH=7 -mfpu=neon -mfloat-abi=softfp
+SRC += flac/arm.S ape/predictor-arm.S
+endif
 
 SRCX =	tinyxml/tinyxml2.cpp  tinyxml/xmlparser.cpp
 

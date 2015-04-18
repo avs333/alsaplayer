@@ -29,7 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110, USA
 #include "filter.h"
 #include "demac_config.h"
 
-#ifdef ANDROID 
+#ifdef CPU_ARM
 #include "vector_math16_armv7.h"
 //#include "vector_math16_armv6.h"
 //#include "vector_math16_armv5te.h"

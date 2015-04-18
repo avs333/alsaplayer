@@ -66,10 +66,12 @@ static const struct _supp_rates {
 
 static int init_mixer_controls(playback_ctx *ctx, int card);
 
-#if defined(ANDROID) || defined(ANDLINUX)
+#if defined(ANDROID) 
 static char cards_file[] = "/sdcard/.alsaplayer/cards.xml";
 #else
 static char cards_file[PATH_MAX];
+char *ext_cards_file = 0;
+int forced_chunks = 0, forced_chunk_size = 0;
 #endif
 
 /* free per track params */
@@ -259,8 +261,18 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	priv->card_name = strdup((char *)info.name);
 	close(fd); 
 	fd = -1;
-#if !defined(ANDROID) && !defined(ANDLINUX)
-	sprintf(cards_file, "%s/.alsaplayer/cards.xml", getenv("HOME"));	
+#if !defined(ANDROID)
+	if(ext_cards_file) {
+	    strcpy(cards_file, ext_cards_file);
+	    log_info("using custom config from %s", ext_cards_file);
+	} else {
+#if defined(ANDLINUX)
+	    strcpy(cards_file,"/sdcard/.alsaplayer/cards.xml");
+#else
+	    sprintf(cards_file, "%s/.alsaplayer/cards.xml", getenv("HOME"));	
+#endif
+	    log_info("using default config from %s", cards_file);
+	}
 #endif
 	xml_dev = xml_dev_open(cards_file, priv->card_name, device);	
 	if(!xml_dev) log_info("warning: no settings for card %d (%s) device %d in %s", card, priv->card_name, device, cards_file); 
@@ -342,9 +354,9 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		goto err_exit;
 	    }
     	    c = cat_str(c, "Supported codecs:\n");
-	    for(k = 0; k < caps.num_codecs; k++) {
+	    for(k = 0; k < MAX_NUM_CODECS /* caps.num_codecs */; k++) { /* for msm kernel bug */
 		int i = caps.codecs[k];
-		if(i <= 0 || i >= SND_AUDIOCODEC_MAX) continue;
+		if(i <= 0 || i > SND_AUDIOCODEC_MAX) continue; 
 		c = cat_str(c, compr_codecs[i]);
 		c = cat_str(c, "\n");
 		priv->supp_codecs_mask |= (1 << i);
@@ -396,8 +408,9 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    if(!priv->is_offload) setup_hwparams(&hwparams, 0, rate, 0, 0, 0);	
 	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_rates_mask |= supp_rates[k].mask;
-		sprintf(tmp, "%d ", rate);
+		sprintf(tmp, "%d", rate);
 		c = cat_str(c, tmp);
+		c = cat_str(c, " ");
 		if(xml_dev) {
 		    priv->nv_rate[k] = xml_dev_find_ctls(xml_dev, "rate", tmp);
 		    if(priv->nv_rate[k]) log_info("found controls for rate=%d", rate);
@@ -516,8 +529,14 @@ int alsa_start(playback_ctx *ctx)
 	log_info("Period size: min=%d\tmax=%d", persz_min, persz_max);
 	log_info("    Periods: min=%d\tmax=%d", periods_min, periods_max);
 
+#ifndef ANDROID	
+	priv->chunks = forced_chunks ? forced_chunks : periods_max;
+	priv->chunk_size = forced_chunk_size ? forced_chunk_size : persz_max;
+#else
 	priv->chunks = periods_max;
 	priv->chunk_size = persz_max;
+	if(priv->chunks > 32) priv->chunks = 32; 
+#endif
 
 	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->chunk_size);
 	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS, priv->chunks);
@@ -525,13 +544,19 @@ int alsa_start(playback_ctx *ctx)
 	/* Try to obtain the largest buffer possible keeping in mind 
 	   that ALSA always tries to set minimum latency */
 
-	if(priv->chunks > 32) priv->chunks = 32; 
-
 #define NSTEPS	8
 
 	i = (persz_max - persz_min) / NSTEPS; 
 
 	while(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) < 0) {
+#ifndef ANDROID
+	    if(forced_chunks || forced_chunk_size) {
+		log_err("cannot set forced hw parameters num=%d size=%d", 
+			forced_chunks, forced_chunk_size);
+		ret = LIBLOSSLESS_ERR_AU_SETCONF;
+		goto err_exit;
+	    }
+#endif		
 	    priv->chunk_size -= i;
 	    if(priv->chunk_size < persz_min || i == 0) {
 		priv->chunk_size = persz_max;
@@ -553,6 +578,11 @@ int alsa_start(playback_ctx *ctx)
 	}
 	priv->chunk_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
 
+#ifndef ANDROID
+	if(forced_chunks)
+	    log_info("forcing period size %d, periods %d", priv->chunk_size, priv->chunks);
+	else
+#endif
 	log_info("selecting period size %d, periods %d", priv->chunk_size, priv->chunks);
 
 	priv->buf_bytes = priv->chunk_size * ctx->channels * priv->format->phys_bits/8;
@@ -640,8 +670,8 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 
     return ret;
 }
-/* Count in samples. */
-ssize_t alsa_write(playback_ctx *ctx, size_t count)
+/* Count in samples. If buf is zero, take data from priv->buf */
+ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 {
     alsa_priv *priv;
     int i, written = 0;
@@ -653,19 +683,24 @@ ssize_t alsa_write(playback_ctx *ctx, size_t count)
 	    return 0;
 	}
 	priv = (alsa_priv *) ctx->alsa_priv;	
+
+	xf.buf = buf ? buf : priv->buf;
+	xf.frames = priv->chunk_size;
+	xf.result = 0;
 	
 	if(count > priv->chunk_size) {
 	    log_err("frames count %d larger than period size %d", (int) count, priv->chunk_size);
 	    count = priv->chunk_size;
 	} else if(count < priv->chunk_size) {
 	    log_info("short buffer, must be EOF");	
+	    if(buf) {
+		memcpy(priv->buf, buf, count * ctx->channels * priv->format->phys_bits/8);
+	    	xf.buf = priv->buf;	
+	    }		
 	    memset(priv->buf + count * ctx->channels * priv->format->phys_bits/8, 0, 
 			(priv->chunk_size - count) * ctx->channels * priv->format->phys_bits/8);
 	}	
 
-	xf.buf = priv->buf;
-	xf.frames = priv->chunk_size;
-	xf.result = 0;
 
 	while(written < priv->chunk_size) {
 #if 1
@@ -1156,11 +1191,12 @@ int alsa_get_devices(char ***dev_names)
     return n;	
 }
 
+#endif
+
 char *alsa_current_device_info(playback_ctx *ctx)
 {
     if(!ctx || !ctx->alsa_priv) return 0;	
     return ((alsa_priv *) ctx->alsa_priv)->devinfo;		
 }
-#endif
 
 
