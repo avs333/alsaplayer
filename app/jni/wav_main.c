@@ -145,6 +145,45 @@ static off_t wav_init(int *samplerate, int *channels, int *bps, void *mm, int le
     return mptr - mm;
 }
 
+#if defined(__ARM_ARCH_7A__)
+/* Some 8 times faster than C-version */
+void __attribute__((naked)) convert24_asm(int8_t *dst, int8_t *src, int num_24bit_chunks_divided_by4)
+{
+    asm(".syntax unified\n"
+	"push	{r4-r9, lr}\n"
+	"mov	r3, 0\n"
+    "1:  ldr	r4, [r1], 4\n"		/* we process (24/8)*4 = 12 bytes per cycle */
+	"ldr	r5, [r1], 4\n"
+	"ldr	r6, [r1], 4\n"
+	"mov	r7, r4\n"
+	"tst	r4, 0x800000\n"
+	"ite	eq\n"			/* zero sign bit */
+	"andeq	r7, 0x00ffffff\n"
+	"orrne	r7, 0xff000000\n"
+	"lsr	r8, r4, 24\n"
+	"str	r7, [r0], 4\n"
+	"orr	r9, r8, r5, lsl 8\n"
+	"tst	r5, 0x8000\n"
+	"ite	eq\n"	
+	"andeq	r9, 0x00ffffff\n"
+	"orrne	r9, 0xff000000\n"
+	"lsr	r7, r5, 16\n"
+	"str	r9, [r0], 4\n"
+	"orr	r8, r7, r6, lsl 16\n"
+	"tst	r6, 0x80\n"
+	"ite	eq\n"
+	"andeq	r8, 0x00ffffff\n"
+	"orrne	r8, 0xff000000\n"
+	"asr	r7, r6, 8\n"
+	"str	r8, [r0], 4\n"
+	"str	r7, [r0], 4\n"
+	"add	r3, 1\n"
+	"cmp	r2, r3\n"
+	"bne	1b\n"
+	"pop	{r4-r9, pc}\n");
+}
+#endif
+
 #define MMAP_SIZE       (128*1024*1024)
 
 int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start) 
@@ -160,6 +199,9 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
     const off_t pg_mask = sysconf(_SC_PAGESIZE) - 1;    
     const playback_format_t *format;	
     struct timeval tstart, tstop, tdiff;
+#if defined(__ARM_ARCH_7A__)
+    int optimise = 0;	
+#endif
 
 #ifdef ANDROID
 	file = (*env)->GetStringUTFChars(env,jfile,NULL);
@@ -275,6 +317,12 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		b2f = channels * 2; 
 		break;
 	    case SNDRV_PCM_FORMAT_S24_LE:
+#if defined(__ARM_ARCH_7A__)
+		if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) {
+		    optimise = (read_bytes % 12 == 0);
+		    log_info("%susing assembly-optimised code for ARM", optimise ? "" : "not ");
+		}
+#endif
 	    case SNDRV_PCM_FORMAT_S24_3LE:	
 		b2f = channels * 3; 
 		break;
@@ -319,6 +367,11 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	    if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) {
 		int8_t *src = (int8_t *) mptr;
 		int8_t *dst = (int8_t *) pcmbuf;
+
+#if defined(__ARM_ARCH_7A__)
+	      if(optimise) convert24_asm(dst, src, i/12);
+	      else
+#endif
 		for(k = 0; k < i/3; k++) {
 		    dst[0] = src[0];	
 		    dst[1] = src[1];	
@@ -369,4 +422,5 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 
 
 }
+
 
