@@ -23,11 +23,12 @@
 #define __bitwise
 #define __user
 #include <sound/asound.h>
-#include <sound/compress_params.h>
-#include <sound/compress_offload.h>
 
 #include "main.h"
 #include "alsa_priv.h"
+
+#undef _COMPR_PROTO_
+#include "compr.h"
 
 struct ctl_elem {
     snd_ctl_elem_type_t type;
@@ -187,7 +188,8 @@ static inline char *cat_str(char *dest, const char *src)
 	}
 }
 
-static const char *compr_codecs[SND_AUDIOCODEC_MAX+1] = {
+#define CODEC_MAX	31	/* to fit in one word */
+static const char *compr_codecs[CODEC_MAX+1] = {
    [0x1] = "SND_AUDIOCODEC_PCM", [0x2] = "SND_AUDIOCODEC_MP3", [0x3] = "SND_AUDIOCODEC_AMR",	
    [0x4] = "SND_AUDIOCODEC_AMRWB", [0x5] = "SND_AUDIOCODEC_AMRWBPLUS", [0x6] = "SND_AUDIOCODEC_AAC",
    [0x7] = "SND_AUDIOCODEC_WMA", [0x8] = "SND_AUDIOCODEC_REAL", [0x9] = "SND_AUDIOCODEC_VORBIS",
@@ -210,7 +212,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
     struct snd_ctl_card_info info;
     void *xml_dev = 0;
     struct snd_pcm_hw_params hwparams;
-    struct snd_compr_caps caps;
+    int  *codecs;
     char *c = 0;
 
 	if(!ctx) {
@@ -348,33 +350,32 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	c = cat_str(c, priv->is_offload ? " (offload)\n" : " (pcm)\n");
 
 	if(priv->is_offload) {
-	    if(ioctl(fd, SNDRV_COMPRESS_GET_CAPS, &caps) != 0) {
-		log_err("cannot get compress capabilities for device %d", device);
+	    int i = compr_get_version(ctx, fd);
+	    if(i < 0) {	
+		ret = LIBLOSSLESS_ERR_AU_SETUP;
+		goto err_exit;
+	    }
+	    i = (*compr_get_codecs)(fd, &codecs);	
+	    if(i < 0) {
 		ret = LIBLOSSLESS_ERR_AU_SETUP;
 		goto err_exit;
 	    }
     	    c = cat_str(c, "Supported codecs:\n");
-	    for(k = 0; k < MAX_NUM_CODECS /* caps.num_codecs */; k++) { /* for msm kernel bug */
-		int i = caps.codecs[k];
-		if(i <= 0 || i > SND_AUDIOCODEC_MAX) continue; 
-		c = cat_str(c, compr_codecs[i]);
+	    for(k = 0; k < i; k++) {
+		int n = codecs[k];
+		if(n <= 0 || n > CODEC_MAX) continue; 
+		c = cat_str(c, compr_codecs[n]);
 		c = cat_str(c, "\n");
-		priv->supp_codecs_mask |= (1 << i);
+		priv->supp_codecs_mask |= (1 << n);
 	    }
-#if 1
+	    free(codecs);
 	    if(priv->supp_codecs_mask == 0) { 
 		log_err("this device cannot play any sane compressed streams");
 		ret = LIBLOSSLESS_ERR_AU_SETUP;
 		goto err_exit;	    
 	    } 
-#else
-	    if((priv->supp_codecs_mask & (1 << SND_AUDIOCODEC_FLAC)) == 0) { 
-		log_err("this device does not support hardware playback of FLAC streams");
-		ret = LIBLOSSLESS_ERR_AU_SETUP;
-		goto err_exit;	    
-	    }
-#endif	
 	}
+
     	c = cat_str(c, "Supported formats:\n");
 	for(k = 0; k < n_supp_formats; k++) {	
 	    if(!priv->is_offload) setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0);
@@ -1002,7 +1003,8 @@ int set_mixer_controls(playback_ctx *ctx, struct nvset *nv)
     struct snd_ctl_elem_value ev;
     alsa_priv *priv;
     int ctl_fd = -1;
-    char tmp[128];	
+    char tmp[128], *c, *ce;	
+    long val;
 
     if(!ctx) {
 	log_err("zero context");
@@ -1040,7 +1042,16 @@ int set_mixer_controls(playback_ctx *ctx, struct nvset *nv)
 		switch(ctl->type) {
 		    case SNDRV_CTL_ELEM_TYPE_BOOLEAN:
 		    case SNDRV_CTL_ELEM_TYPE_INTEGER:
-			for(k = 0; k < ctl->count; k++) ev.value.integer.value[k] = atoi(nv->value);
+			if(ctl->count == 1) ev.value.integer.value[0] = atoi(nv->value);
+			else for(k = 0, c = (char *) nv->value; k < ctl->count; k++, c = ce) {
+			    errno = 0; ce = 0;
+			    val = strtol(c, &ce, 0);
+			    if(errno != 0 || !ce) {
+				log_err("bad value specified in %s", nv->value);
+				break;
+			    }
+			    ev.value.integer.value[k] = (int) val;
+			}
 			if(ioctl(ctl_fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &ev) < 0) {
 			    log_err("failed to set value for %s", nv->name);
 			    break;
@@ -1145,12 +1156,12 @@ int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device)
     return ret;	
 }
 
+#if 0
 #define SNDRV_CARDS 32	/* include/sound/core.h */
 
 /* Returns the list of cards/devices that should appear in preferences dialog.
    These are all devices with playback capabilities except for those with card_name 
    found in cards.xml, but dev_id missing there. */
-
 int alsa_get_devices(char ***dev_names)
 {
     int fd, i, k, n;	
@@ -1165,23 +1176,24 @@ int alsa_get_devices(char ***dev_names)
 	    if(fd < 0) break;
 	    memset(&info, 0, sizeof(info));	
 	    if(ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info) != 0) break;
-	    xml = xml_dev_open(cards_file, (char *) info.name, -1);
 	    i = -1;
+	    xml = xml_dev_open(cards_file, (char *) info.name, -1);
 	    while(1) {
 		if(ioctl(fd, SNDRV_CTL_IOCTL_PCM_NEXT_DEVICE, &i) || i == -1) break;
 		memset(&pcm_info, 0, sizeof(struct snd_pcm_info));
 		pcm_info.device = i;
 		pcm_info.stream = SNDRV_PCM_STREAM_PLAYBACK;
+		log_info("trying device %d", i);
 		if(ioctl(fd, SNDRV_CTL_IOCTL_PCM_INFO, &pcm_info) == 0) {
 		    if(xml && !xml_dev_exists(xml, i)) continue;
 		    n++;
 		    devs = (char **) realloc(devs, n * sizeof(char *));
 		    sprintf(tmp, "%02d-%02d: %s", k, i, (char *)pcm_info.id);
+		    log_info("okay, %s", tmp);	
 		    c = strstr(tmp+8, " (*)"); /* trim QC devices a bit */
 		    if(c) *c = 0;
 		    devs[n-1] = strdup(tmp);
-	
-		}
+		} else log_info("device %d failed", i);
 	    }	
 	    if(xml) xml_dev_close(xml);
 	    close(fd);	
@@ -1190,6 +1202,51 @@ int alsa_get_devices(char ***dev_names)
 
     return n;	
 }
+#else
+int alsa_get_devices(char ***dev_names)
+{
+    void *xml = 0;
+    FILE *f;
+    char tmp[512], tmp1[64], *c, **devs = 0;
+    int  fd = -1, k, n, card, device, cur_card = -1;
+    struct snd_ctl_card_info info;
+	
+    	f = fopen("/proc/asound/pcm", "r");
+	if(!f) return 0;
+	printf("opened\n");
+	n = 0; devs = 0;
+
+	while(fgets(tmp,sizeof(tmp),f)) {
+	    if(!strstr(tmp,"playback")) continue;
+	    if(sscanf(tmp, "%02d-%02d: ", &card, &device) != 2) continue;
+	    if(card != cur_card) {
+		sprintf(tmp1, "/dev/snd/controlC%d", card);
+		fd = open(tmp1, O_RDWR);
+		if(fd < 0) continue;
+		memset(&info, 0, sizeof(info));
+		k = ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info); 
+		close(fd);	
+		if(k != 0) continue;
+		if(xml) xml_dev_close(xml);
+		xml = xml_dev_open(cards_file, (char *) info.name, -1);
+		cur_card = card;
+	    }	
+	    if(xml && !xml_dev_exists(xml, device)) continue;
+	    c = strstr(tmp+8, " (*)");	
+	    if(c) *c = 0;
+	    c = strstr(tmp+8, " :");
+	    if(c) *c = 0;
+	    devs = (char **) realloc(devs, ++n * sizeof(char *));
+	    devs[n-1] = strdup(tmp);	
+	}
+	fclose(f);
+	if(xml) xml_dev_close(xml);
+	if(n) *dev_names = devs;
+    return n;	
+}
+
+
+#endif
 
 #endif
 

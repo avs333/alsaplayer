@@ -30,6 +30,9 @@ static char mixer_paths_file[] = "/system/etc/mixer_paths.xml";
 static char mixer_paths_file[PATH_MAX];
 #endif
 
+#pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
+#pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
+
 
 /* Returns 0 in paused state, -1 if stopped.
    Blocks in paused state. */
@@ -338,9 +341,10 @@ int audio_write(playback_ctx *ctx, void *buff, int size)
 #ifdef ANDROID
 static 
 #endif
-jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+jboolean audio_pause(JNIEnv *env, jobject obj, jlong jctx) 
 {
     bool ret;
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     if(!ctx) {
 	log_err("no context to pause");
 	return false;
@@ -363,9 +367,10 @@ jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx)
 #ifdef ANDROID
 static 
 #endif
-jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+jboolean audio_resume(JNIEnv *env, jobject obj, jlong jctx) 
 {
     bool ret;
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     if(!ctx) {
 	log_err("no context to resume");
 	return false;
@@ -386,22 +391,25 @@ jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx)
 }
 
 #ifdef ANDROID
-static jint audio_get_duration(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+static jint audio_get_duration(JNIEnv *env, jobject obj, jlong jctx) 
 {
+   playback_ctx *ctx = (playback_ctx *) jctx;	
    if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;	
    return ctx->track_time;
 }
 
 /* in seconds */
-static jint audio_get_cur_position(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+static jint audio_get_cur_position(JNIEnv *env, jobject obj, jlong jctx) 
 {
+   playback_ctx *ctx = (playback_ctx *) jctx;
    if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
    return alsa_is_offload(ctx) ? alsa_time_pos_offload(ctx) : ctx->written/ctx->samplerate;
 }
 
-static jboolean in_offload_mode(JNIEnv *env, jobject obj, playback_ctx *ctx)
+static jboolean in_offload_mode(JNIEnv *env, jobject obj, jlong jctx)
 {
-    return alsa_is_offload(ctx) != 0;	
+   playback_ctx *ctx = (playback_ctx *) jctx;
+   return alsa_is_offload(ctx) != 0;	
 }
 
 #endif
@@ -410,11 +418,11 @@ static jboolean in_offload_mode(JNIEnv *env, jobject obj, playback_ctx *ctx)
 #ifdef ANDROID
 static 
 #endif
-jint audio_init(JNIEnv *env, jobject obj, playback_ctx *prev_ctx, jint card, jint device) 
+jlong audio_init(JNIEnv *env, jobject obj, jlong jctx, jint card, jint device) 
 {
     playback_ctx *ctx;
-
-    log_info("audio_init: prev_ctx=%p", prev_ctx);
+    playback_ctx *prev_ctx = (playback_ctx *) jctx;	
+    log_info("audio_init: prev_ctx=%p, device=hw:%d,%d", prev_ctx, card, device);
     if(prev_ctx) {
 	audio_stop(prev_ctx, 1);
 	if(alsa_select_device(prev_ctx, card, device) != 0) { 
@@ -443,14 +451,15 @@ jint audio_init(JNIEnv *env, jobject obj, playback_ctx *prev_ctx, jint card, jin
     ctx->state = STATE_STOPPED;
     ctx->track_time = 0;
     log_info("audio_init: return ctx=%p",ctx);
-    return (jint) (long) ctx;	
+    return (jlong) ctx;	
 }
 
 #ifdef ANDROID
 static
 #endif
-jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+jboolean audio_exit(JNIEnv *env, jobject obj, jlong jctx) 
 {
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     if(!ctx) {
 	log_err("zero context");
 	return false;
@@ -472,8 +481,9 @@ jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx)
 #ifdef ANDROID
 static 
 #endif
-jboolean audio_decrease_volume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+jboolean audio_decrease_volume(JNIEnv *env, jobject obj, jlong jctx) 
 {
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     if(!ctx) {
 	log_err("no context");
 	return false;
@@ -487,8 +497,9 @@ jboolean audio_decrease_volume(JNIEnv *env, jobject obj, playback_ctx *ctx)
 #ifdef ANDROID
 static 
 #endif
-jboolean audio_increase_volume(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+jboolean audio_increase_volume(JNIEnv *env, jobject obj, jlong jctx) 
 {
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     if(!ctx) {
 	log_err("no context");
 	return false;
@@ -499,10 +510,9 @@ jboolean audio_increase_volume(JNIEnv *env, jobject obj, playback_ctx *ctx)
     return true;
 }
 
-extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start) {
-
+extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, jint format, jint start) 
+{
     int ret = 0;
-
 	if(!ctx) {
 	    log_err("no context");      
 	    return LIBLOSSLESS_ERR_NOCTX;
@@ -561,8 +571,9 @@ static jobjectArray get_devices(JNIEnv *env, jobject obj)
     return ja;
 }
 
-static jstring current_device_info(JNIEnv *env, jobject obj, playback_ctx *ctx)
+static jstring current_device_info(JNIEnv *env, jobject obj, jlong jctx)
 {
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     char *c = alsa_current_device_info(ctx);
     return c ? (*env)->NewStringUTF(env,c) : 0;
 }
@@ -609,28 +620,34 @@ void update_track_time(JNIEnv *env, jobject obj, int time)
 	if(attached) (*gvm)->DetachCurrentThread(gvm);
 }
 
-static jboolean audio_stop_exp(JNIEnv *env, jobject obj, playback_ctx *ctx) 
+static jboolean audio_stop_exp(JNIEnv *env, jobject obj, jlong jctx) 
 {
+    playback_ctx *ctx = (playback_ctx *) jctx;	
     return (audio_stop(ctx, 1) == 0);    	
 }
 
+static jint audio_play_exp(JNIEnv *env, jobject obj, jlong jctx, jstring jfile, jint format, jint start) 
+{
+    playback_ctx *ctx = (playback_ctx *) jctx;	
+    return audio_play(env, obj, ctx, jfile, format, start);	
+}
 
 static JNINativeMethod methods[] = {
- { "audioInit", "(III)I", (void *) audio_init },
- { "audioExit", "(I)Z", (void *) audio_exit },
- { "audioStop", "(I)Z", (void *) audio_stop_exp },
- { "audioPause", "(I)Z", (void *) audio_pause },
- { "audioResume", "(I)Z", (void *) audio_resume },
- { "audioGetDuration", "(I)I", (void *) audio_get_duration },
- { "audioGetCurPosition", "(I)I", (void *) audio_get_cur_position },
- { "audioDecreaseVolume", "(I)Z", (void *) audio_decrease_volume },
- { "audioIncreaseVolume", "(I)Z", (void *) audio_increase_volume },
- { "audioPlay", "(ILjava/lang/String;II)I", (void *) audio_play },
+ { "audioInit", "(JII)J", (void *) audio_init },
+ { "audioExit", "(J)Z", (void *) audio_exit },
+ { "audioStop", "(J)Z", (void *) audio_stop_exp },
+ { "audioPause", "(J)Z", (void *) audio_pause },
+ { "audioResume", "(J)Z", (void *) audio_resume },
+ { "audioGetDuration", "(J)I", (void *) audio_get_duration },
+ { "audioGetCurPosition", "(J)I", (void *) audio_get_cur_position },
+ { "audioDecreaseVolume", "(J)Z", (void *) audio_decrease_volume },
+ { "audioIncreaseVolume", "(J)Z", (void *) audio_increase_volume },
+ { "audioPlay", "(JLjava/lang/String;II)I", (void *) audio_play_exp },
  { "extractFlacCUE", "(Ljava/lang/String;)[I", (void *) extract_flac_cue },
  { "getAlsaDevices", "()[Ljava/lang/String;", (void *) get_devices },
- { "getCurrentDeviceInfo", "(I)Ljava/lang/String;", (void *) current_device_info },
+ { "getCurrentDeviceInfo", "(J)Ljava/lang/String;", (void *) current_device_info },
  { "isUsbCard", "(I)Z", (void *) alsa_is_usb_card },
- { "inOffloadMode", "(I)Z", (void *) in_offload_mode },
+ { "inOffloadMode", "(J)Z", (void *) in_offload_mode },
  { "isOffloadDevice", "(II)Z", (void *) alsa_is_offload_device },
  { "libInit", "(I)Z", (void *) libinit },
  { "libExit", "()Z", (void *) libexit },

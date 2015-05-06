@@ -89,10 +89,10 @@ extern void update_track_time(JNIEnv *env, jobject obj, int time);
 extern int sync_state(playback_ctx *ctx, const char *func);
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start);
 #ifndef ANDROID
-extern jint audio_init(JNIEnv *env, jobject obj, playback_ctx *prev_ctx, jint card, jint device);
-extern jboolean audio_exit(JNIEnv *env, jobject obj, playback_ctx *ctx);
-extern jboolean audio_pause(JNIEnv *env, jobject obj, playback_ctx *ctx);
-extern jboolean audio_resume(JNIEnv *env, jobject obj, playback_ctx *ctx);
+extern jlong audio_init(JNIEnv *env, jobject obj, jlong prev_ctx, jint card, jint device);
+extern jboolean audio_exit(JNIEnv *env, jobject obj, jlong ctx);
+extern jboolean audio_pause(JNIEnv *env, jobject obj, jlong ctx);
+extern jboolean audio_resume(JNIEnv *env, jobject obj, jlong ctx);
 #endif
 
 /* alsa.c */

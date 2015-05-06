@@ -4,7 +4,8 @@ typedef void * jobject;
 typedef void * jintArray;
 typedef void * JNIEnv;
 typedef char * jstring;
-typedef long jint;
+typedef int jint;
+typedef long jlong;
 typedef bool jboolean;
 #define JNIEXPORT
 #define JNICALL

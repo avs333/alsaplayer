@@ -996,6 +996,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	boolean update_device_settings() {      
 	    if(srv == null) return false;
             try {
+		log_msg("calling set_device for card= hw:" + prefs.card + "," + prefs.device);
             	if(!srv.set_device(prefs.card, prefs.device)) {
 			Toast.makeText(getApplicationContext(), R.string.strSrvDevInitFailure, Toast.LENGTH_SHORT).show();
                         log_err("failed to set device " + prefs.card + ":" + prefs.device);
@@ -1003,7 +1004,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 		}
             } catch (RemoteException r) {
             	log_err("remote exception while trying to set device");
-            }
+            } catch (IllegalArgumentException ea) {
+		log_err("illegal arg exception");
+	    }	
 	    return true;	
 	}
 

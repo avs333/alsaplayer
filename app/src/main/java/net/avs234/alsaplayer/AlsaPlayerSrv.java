@@ -47,25 +47,25 @@ public class AlsaPlayerSrv extends Service {
 	static {
 	    System.loadLibrary("lossless");
 	}
+
+	public static native long 	audioInit(long ctx, int card, int device);
+	public static native boolean	audioExit(long ctx);
+	public static native boolean	audioStop(long ctx);
+	public static native boolean	audioPause(long ctx);
+	public static native boolean	audioResume(long ctx);
 	
-	public static native int 	audioInit(int ctx, int card, int device);	
-	public static native boolean	audioExit(int ctx);
-	public static native boolean	audioStop(int ctx);
-	public static native boolean	audioPause(int ctx);
-	public static native boolean	audioResume(int ctx);
+	public static native int	audioGetDuration(long ctx);
+	public static native int	audioGetCurPosition(long ctx);
+	public static native boolean	audioIncreaseVolume(long ctx);
+	public static native boolean	audioDecreaseVolume(long ctx);
 	
-	public static native int	audioGetDuration(int ctx);
-	public static native int	audioGetCurPosition(int ctx);
-	public static native boolean	audioIncreaseVolume(int ctx);
-	public static native boolean	audioDecreaseVolume(int ctx);
-	
-	public static native int	audioPlay(int ctx, String file, int format, int start);
-	public static native boolean	inOffloadMode(int ctx);	 
+	public static native int	audioPlay(long ctx, String file, int format, int start);
+	public static native boolean	inOffloadMode(long ctx);	 
 
 	public static native int []	extractFlacCUE(String file);
 
 	public static native String []  getAlsaDevices();
-	public static native String	getCurrentDeviceInfo(int ctx);
+	public static native String	getCurrentDeviceInfo(long ctx);
 
 	public static native boolean	isUsbCard(int card); 
 	public static native boolean	isOffloadDevice(int card, int device); 
@@ -93,7 +93,7 @@ public class AlsaPlayerSrv extends Service {
 	// Audio context descriptor returned by audioInit(). 
 	// Actually, it's a pointer to struct playback_ctx, see native code.
 	// Used in all subsequent calls of native functions.
-	private static int ctx = 0;
+	private static long ctx = 0;
 
 	
 	public static final int MODE_NONE = 0;
@@ -375,6 +375,7 @@ public class AlsaPlayerSrv extends Service {
 				}
 			
 			try {
+				log_msg("trying to init: old_ctx=" + String.format("0x%x",ctx) + " card hw:" + card_no + "," + dev_no);
 		   		ctx = audioInit(ctx, card_no, dev_no);
 	   		} catch(Exception e) { 
 		   		log_err("exception in audioInit(): " + e.toString());
@@ -384,7 +385,7 @@ public class AlsaPlayerSrv extends Service {
 		   		log_err("audioInit() failed");
 		   		return false;
 	   		}
-			log_msg("initAuidoCard context=" + String.format("0x%08x",ctx));
+			log_msg("initAuidoCard context=" + String.format("0x%x",ctx));
 		        cur_mode = MODE_ALSA;
 			cur_card = card_no;
 			cur_device = dev_no;
@@ -417,7 +418,7 @@ public class AlsaPlayerSrv extends Service {
 			public void run() {
 				tid = Process.myTid();
 				running = true;
-				log_msg("run(): starting new thread " + tid + ", ctx = " + String.format("0x%08x", ctx));
+				log_msg("run(): starting new thread " + tid + ", ctx = " + String.format("0x%x", ctx));
 				Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
 				if(!wakeLock.isHeld()) wakeLock.acquire();
 				int k;
@@ -534,7 +535,7 @@ public class AlsaPlayerSrv extends Service {
 				log_msg(String.format("stop(): terminating thread %d from %d", tid, Process.myTid()));
 				Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
 				if(mplayer == null) {
-					log_msg("stopping context " + String.format("0x%08x", ctx));
+					log_msg("stopping context " + String.format("0x%x", ctx));
 					audioStop(ctx);
 				} else {
 					synchronized(mplayer_lock) {
@@ -735,7 +736,8 @@ public class AlsaPlayerSrv extends Service {
 	        	stopSelf();
 	        }
 		AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
-		AlsaPlayerSrv.setPermissions();
+		File f = new File("/dev/snd/controlC0");
+		if(!f.canRead() && !f.canWrite()) AlsaPlayerSrv.setPermissions();
 	}
 
 	public static boolean setPermissions() {

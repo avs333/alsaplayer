@@ -24,8 +24,6 @@
 #define __bitwise
 #define __user
 #include <sound/asound.h>
-#include <sound/compress_params.h>
-#include <sound/compress_offload.h>
 
 #include "main.h"
 

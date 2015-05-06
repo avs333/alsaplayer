@@ -21,30 +21,29 @@
 #define __force
 #define __bitwise
 #define __user
-#include <sound/asound.h>
-#include <sound/compress_params.h>
-#include <sound/compress_offload.h>
 
+#include <sound/asound.h>
 #include "main.h"
 #include "alsa_priv.h"
 
+#undef _COMPR_PROTO_
+#include "compr.h"
 
 #define MAX_POLL_WAIT_MS	(10*1000)
 
 static ssize_t write_offload(playback_ctx *ctx, void *buf, size_t count)
 {
     struct pollfd fds;
-    struct snd_compr_avail avail;
+    int avail;
     alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;
     int ret, written = 0;
-
     while(written != count) {		
 	while(1) {
-	    if(ioctl(priv->fd, SNDRV_COMPRESS_AVAIL, &avail) != 0) {
+	    if((*compr_avail)(priv->fd, &avail) != 0) {
 		log_err("SNDRV_COMPRESS_AVAIL failed, exiting");
 		return -1;
 	    }
-	    if(avail.avail >= count) break;
+	    if(avail >= count) break;
 	    fds.fd = priv->fd;
 	    fds.events = POLLOUT;
 	    ret = poll(&fds, 1, MAX_POLL_WAIT_MS);
@@ -98,8 +97,6 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
     alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;
     int k, read_size, write_size, ret = 0;
     char tmp[128];	
-    struct snd_compr_caps caps;
-    struct snd_compr_params params;
     off_t flen = 0;
     off_t off, cur_map_off;     /* file offset currently mapped to mm */
     size_t cur_map_len;         /* size of file chunk currently mapped */
@@ -107,6 +104,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
     void *mptr, *mend, *mm = MAP_FAILED;
     void *write_buff = 0;
     struct timeval tstart, tstop, tdiff;
+    int min_fragments, max_fragments, min_fragment_size, max_fragment_size;
  	
 	pthread_mutex_lock(&ctx->mutex);
 	if(ctx->state != STATE_STOPPED) {
@@ -154,89 +152,27 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    goto err_exit;
 	}
 	log_info("offload playback device opened");
-	if(ioctl(priv->fd, SNDRV_COMPRESS_GET_CAPS, &caps) != 0) {
+
+	if((*compr_get_caps)(priv->fd, &min_fragments, 
+		&max_fragments, &min_fragment_size, &max_fragment_size) != 0) {
 	    log_err("cannot get compress capabilities for device %d", priv->device);
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;
 	}
 
-	log_info("device reports: max %d chunks of min %d size", caps.max_fragments, caps.min_fragment_size);	
+	log_info("device reports: max %d chunks of min %d size", max_fragments, min_fragment_size);	
 #ifndef ANDROID
-	priv->chunks = forced_chunks ? forced_chunks : caps.max_fragments;
-	priv->chunk_size = forced_chunk_size ? forced_chunk_size : caps.min_fragment_size;
+	priv->chunks = forced_chunks ? forced_chunks : max_fragments;
+	priv->chunk_size = forced_chunk_size ? forced_chunk_size : min_fragment_size;
+	k = (*compr_set_hw_params)(ctx, priv->fd, priv->chunks, priv->chunk_size, forced_chunks || forced_chunk_size);
 #else
-	priv->chunks = caps.max_fragments;
-	priv->chunk_size = caps.min_fragment_size;
+	priv->chunks = max_fragments;
+	priv->chunk_size = min_fragment_size;
+	k = (*compr_set_hw_params)(ctx, priv->fd, priv->chunks, priv->chunk_size, 0);
 #endif
-	k = alsa_get_rate(ctx->samplerate);
-	if(k < 0) {
-	    log_err("unsupported playback rate");
-	    ret = LIBLOSSLESS_ERR_AU_SETUP;
-	    goto err_exit;	
-	}
-
-	memset(&params, 0, sizeof(params));
-	params.codec.ch_in = ctx->channels;			
-	params.codec.ch_out = ctx->channels;
-	params.codec.sample_rate = k;
-
-	log_info("source: format=%d, channels=%d, bps=%d, rate=%d bitrate=%d", 
-		ctx->file_format, ctx->channels, ctx->bps, ctx->samplerate, ctx->bitrate);
-
-	switch(ctx->file_format) {
-	    case FORMAT_FLAC:	
-		params.codec.id = SND_AUDIOCODEC_FLAC;
-		params.codec.options.flac_dec.sample_size = ctx->bps;
-		params.codec.options.flac_dec.min_blk_size = ctx->block_min;
-		params.codec.options.flac_dec.max_blk_size = ctx->block_max;
-		params.codec.options.flac_dec.min_frame_size = ctx->frame_min;
-		params.codec.options.flac_dec.max_frame_size = ctx->frame_max;
-		/* Fuck. This field was intended for SND_AUDIOSTREAMFORMAT macros
-		   in compress_params.h, e.g. SND_AUDIOSTREAMFORMAT_(FLAC|FLAC_OGG), etc. */
-		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
-		params.codec.profile = SND_AUDIOPROFILE_FLAC;
-		break;
-	    case FORMAT_MP3:
-		params.codec.id = SND_AUDIOCODEC_MP3;
-		params.codec.bit_rate = ctx->bitrate;
-		break;
-	    case FORMAT_WAV:
-		params.codec.id = SND_AUDIOCODEC_PCM;
-		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
-		break;	
-	    default:
-		log_err("unsupported playback format %d", ctx->file_format);
-		ret = LIBLOSSLESS_ERR_AU_SETUP;
-		goto err_exit;	
-	}
-
-	params.buffer.fragments = priv->chunks; 
-	params.buffer.fragment_size = priv->chunk_size;
-
-/*	if(ctx->file_format == FORMAT_FLAC)
-            log_info("setting params: codec=%d block_sz=%d/%d frm_sz=%d/%d smpl_sz=%d, %d chunks of size %d", 
-		params.codec.id, params.codec.options.flac_dec.min_blk_size,
-                params.codec.options.flac_dec.max_blk_size, params.codec.options.flac_dec.min_frame_size, 
-		params.codec.options.flac_dec.max_frame_size, params.codec.options.flac_dec.sample_size,
-		params.buffer.fragments, params.buffer.fragment_size); */
-
-	while(ioctl(priv->fd, SNDRV_COMPRESS_SET_PARAMS, &params) != 0) {
-#ifndef ANDROID
-	    if(forced_chunks || forced_chunk_size) {
-                log_err("failed to set forced parameters for fragments num=%d size=%d",
-                        forced_chunks, forced_chunk_size);
-		ret = LIBLOSSLESS_ERR_AU_SETUP;
-		goto err_exit;
-	    }	
-#endif
-	    priv->chunks >>= 1;
-	    if(!priv->chunks) {
-		log_err("failed to set hardware parameters");
-		ret = LIBLOSSLESS_ERR_AU_SETUP;
-		goto err_exit;
-	    }				
-	    params.buffer.fragments = priv->chunks;
-	    log_info("hw params setup failed, testing with %d chunks", priv->chunks); 
+	if(k != 0) {
+	    ret = k;
+	    goto err_exit;
 	}
 
 	log_info("offload playback setup succeeded");
@@ -291,7 +227,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	}
 
 	log_info("starting playback");
-	if(ioctl(priv->fd, SNDRV_COMPRESS_START) != 0) {
+	if((*compr_start_playback)(priv->fd) != 0) {
 	    log_err("failed to start playback");
 	    ret = LIBLOSSLESS_ERR_AU_START;
 	    goto err_exit;
@@ -346,7 +282,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 
 	if(mptr == mend) {
 	    log_info("draining");
-	    if(ioctl(priv->fd, SNDRV_COMPRESS_DRAIN) != 0) log_info("drain failed");
+	    if((*compr_drain)(priv->fd) != 0) log_info("drain failed");
 	}
 	gettimeofday(&tstop,0);
 	timersub(&tstop, &tstart, &tdiff);
@@ -373,7 +309,7 @@ bool alsa_pause_offload(playback_ctx *ctx)
     alsa_priv *priv;
 	if(!ctx || !ctx->alsa_priv) return false;
 	priv = (alsa_priv *) ctx->alsa_priv;
-    return ioctl(priv->fd, SNDRV_COMPRESS_PAUSE, 1) == 0;
+    return (*compr_pause)(priv->fd) == 0;
 }
 
 bool alsa_resume_offload(playback_ctx *ctx) 
@@ -381,18 +317,15 @@ bool alsa_resume_offload(playback_ctx *ctx)
     alsa_priv *priv;
 	if(!ctx || !ctx->alsa_priv) return false;
 	priv = (alsa_priv *) ctx->alsa_priv;
-    return ioctl(priv->fd, SNDRV_COMPRESS_RESUME, 0) == 0;
+    return (*compr_resume)(priv->fd) == 0;
 }
 
 int alsa_time_pos_offload(playback_ctx *ctx)
 {
     alsa_priv *priv;
-    struct snd_compr_avail avail;
 	if(!ctx || !ctx->alsa_priv) return 0;
 	priv = (alsa_priv *) ctx->alsa_priv;
-	if(ioctl(priv->fd, SNDRV_COMPRESS_AVAIL, &avail) != 0) return 0;
-	if(avail.tstamp.sampling_rate == 0) return 0;
-    return avail.tstamp.pcm_io_frames / avail.tstamp.sampling_rate;
+    return (*compr_offload_time_pos)(priv->fd);
 }
 
 /* ************************************************************* */
@@ -555,4 +488,8 @@ int mp3_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	if(fd >= 0) close(fd);
 	return ret;
 }
+
+
+
+
 

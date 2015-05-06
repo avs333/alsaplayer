@@ -2,7 +2,7 @@
 <cards>
 
   <!-- builtin=1 means device setup should be added from mixer_paths.xml -->
-  <card name="(msm8974|apq8084).*" builtin="1">
+  <card name="(msm8974|apq8084|msm8984).*" builtin="1">
     <device id="0">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
@@ -61,6 +61,99 @@
 	</path>
     </path>
   </card>
+
+
+  <card name="(msm8994).*" builtin="1">
+    <!-- Terrible distortions @ 24 bit	
+    <device id="0">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device> -->
+    <device id="1">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <!-- Dunno what it tries to spit out	
+    <device id="4">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia3" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia3" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device> -->
+    <device id="9" offload="1">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="0"/> </path>
+	<path name="common_offload_settings"/>
+    </device>
+    <device id="15">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <device id="17" offload="1">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia7" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia7" value="0"/> </path>
+	<path name="common_offload_settings"/>
+    </device>
+    <device id="18" offload="1">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="0"/> </path>
+	<path name="common_offload_settings"/>
+    </device>
+    <device id="24">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia6" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia6" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <device id="35">
+	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia9" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia9" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <!-- *Offload* devices with ids 37 thru 42 also available (MultiMedia11 thru 16)  -->	
+    <path name="common_pcm_settings">	
+	<path name="rate" value="44100"> <ctl name="SLIM_0_RX SampleRate" value="KHZ_48"/> </path>	 
+	<path name="rate" value="48000"> <ctl name="SLIM_0_RX SampleRate" value="KHZ_48"/> </path>	 
+	<path name="rate" value="96000"> <ctl name="SLIM_0_RX SampleRate" value="KHZ_96"/> </path>	 
+	<path name="rate" value="176400"> <ctl name="SLIM_0_RX SampleRate" value="KHZ_192"/> </path>	 
+	<path name="rate" value="192000"> <ctl name="SLIM_0_RX SampleRate" value="KHZ_192"/> </path>	 
+	<path name="rate" value="default"> <ctl name="SLIM_0_RX SampleRate" value="KHZ_48"/> </path>
+	<path name="fmt" value="SNDRV_PCM_FORMAT_S16_LE"> <ctl name="SLIM_0_RX Format" value="S16_LE"/> </path>
+	<path name="fmt" value="SNDRV_PCM_FORMAT_S24_LE"> <ctl name="SLIM_0_RX Format" value="S24_LE"/> </path>
+	<path name="fmt" value="default"> <ctl name="SLIM_0_RX Format" value="S16_LE"/> </path>
+        <!-- Volume controls, their fmt values and min/max values are optional. For example, commenting out 
+             digital controls and setting analog min/max values will result in purely analog control. -->       
+	<path name="digital_volume" value="SNDRV_PCM_FORMAT_S16_LE">
+	    <ctl name="RX3 Digital Volume" value="80" min="0" max="84"/>
+	    <ctl name="RX5 Digital Volume" value="80" min="0" max="84"/>
+	</path>
+	<path name="digital_volume" value="SNDRV_PCM_FORMAT_S24_LE">
+	    <ctl name="RX3 Digital Volume" value="118" min="40" max="124"/>
+	    <ctl name="RX5 Digital Volume" value="118" min="40" max="124"/>
+	</path>
+	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path>
+	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S24_LE">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path>
+    </path>
+    <path name="common_offload_settings">	
+	<!-- For offload playback, no rate/fmt-specific settings seem to be required -->
+	<path name="digital_volume">
+	    <ctl name="RX3 Digital Volume" value="80" min="0" max="84"/>
+	    <ctl name="RX5 Digital Volume" value="80" min="0" max="84"/>
+	</path>
+	<path name="analog_volume">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path>
+    </path>
+  </card>
+
 
   <card name="E-MU 0404 | USB">
      <!-- S24_3LE playback only -->

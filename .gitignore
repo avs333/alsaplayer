@@ -6,11 +6,10 @@
 /build
 /alsaplayer.apk
 /cert.keystore
-*.so
 /app/jni/test1
-/app/jni/compr
-/app/jni/flacplay
+/app/libs
 gradle.properties
 /app/jni/tinyxml/xmltest.c
 /libsuperuser/build
 /app/jni/alsaplayer
+

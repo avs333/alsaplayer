@@ -30,7 +30,7 @@ extern int security_setenforce(int value);
 
 int quiet_run = 0;
 
-static playback_ctx *ctx = 0;
+static jlong ctx = 0;
 
 struct call_args {
     int min, sec, ftype; 	
@@ -70,7 +70,7 @@ void *thd(void *a)
 	sigemptyset(&set);
 	sigaddset(&set, SIGINT);
 	pthread_sigmask(SIG_BLOCK, &set, NULL);
-	audio_play(0, 0, ctx, args->file, args->ftype, args->min*60 + args->sec);	
+	audio_play(0, 0, (playback_ctx *) ctx, args->file, args->ftype, args->min*60 + args->sec);	
     return 0;	
 }
 
@@ -83,9 +83,9 @@ static int parse_cue(struct call_args *args);
 
 static int test_device(int card, int device)
 {
-    ctx = (playback_ctx *) audio_init(0, 0, 0, card, device);
+    ctx = audio_init(0, 0, 0, card, device);
     if(!ctx) return 1;
-    printf("%s\n", alsa_current_device_info(ctx));	    	
+    printf("%s\n", alsa_current_device_info((playback_ctx *)ctx));	    	
     audio_exit(0, 0, ctx);
     return 0; 		
 }
@@ -187,7 +187,7 @@ int main(int argc, char **argv)
 	}
 
 	if(args->ftype == -1) return printf("file extension must be .flac, .ape or .mp3\n");
-	ctx = (playback_ctx *) audio_init(0, 0, 0, card, device);
+	ctx = audio_init(0, 0, 0, card, device);
 	if(!ctx) return -1;	
 
 	pthread_create(&thread, 0, thd, args);
