@@ -376,13 +376,15 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    } 
 	}
 
-    	c = cat_str(c, "Supported formats:\n");
+    	if(!priv->is_offload) c = cat_str(c, "Supported formats:\n");
 	for(k = 0; k < n_supp_formats; k++) {	
 	    if(!priv->is_offload) setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0);
 	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_formats_mask |= supp_formats[k].mask;
-		c = cat_str(c, supp_formats[k].str);
-		c = cat_str(c, "\n");
+		if(!priv->is_offload) {
+		    c = cat_str(c, supp_formats[k].str);
+		    c = cat_str(c, "\n");
+		}
 		if(!xml_dev) continue;
 		priv->nv_fmt[k] = xml_dev_find_ctls(xml_dev, "fmt", supp_formats[k].str);
 		if(priv->nv_fmt[k]) log_info("found controls for fmt=%s", supp_formats[k].str);
@@ -403,15 +405,17 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		}
 	    }
 	}
-	c = cat_str(c, "Supported samplerates:\n");
+	if(!priv->is_offload) c = cat_str(c, "Supported samplerates:\n");
 	for(k = 0; k < n_supp_rates; k++) {
 	    int rate = supp_rates[k].rate;	
 	    if(!priv->is_offload) setup_hwparams(&hwparams, 0, rate, 0, 0, 0);	
 	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_rates_mask |= supp_rates[k].mask;
-		sprintf(tmp, "%d", rate);
-		c = cat_str(c, tmp);
-		c = cat_str(c, " ");
+		if(!priv->is_offload) {
+		    sprintf(tmp, "%d", rate);
+		    c = cat_str(c, tmp);
+		    c = cat_str(c, " ");
+		}
 		if(xml_dev) {
 		    priv->nv_rate[k] = xml_dev_find_ctls(xml_dev, "rate", tmp);
 		    if(priv->nv_rate[k]) log_info("found controls for rate=%d", rate);
@@ -439,7 +443,6 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	if(c) free(c);
 	alsa_exit(ctx);
     return ret;	
-
 }
 
 int alsa_start(playback_ctx *ctx) 

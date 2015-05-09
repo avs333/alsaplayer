@@ -51,6 +51,12 @@
 	    <ctl name="RX1 Digital Volume" value="118" min="40" max="124"/>
 	    <ctl name="RX2 Digital Volume" value="118" min="40" max="124"/>
 	</path>
+	<!-- Will work OK for both formats if we left-shift 24-bit samples by 8 bits
+	<path name="digital_volume">
+	    <ctl name="RX1 Digital Volume" value="80" min="0" max="84"/>
+	    <ctl name="RX2 Digital Volume" value="80" min="0" max="84"/>
+	</path>
+	-->
 	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
 	    <ctl name="HPHR Volume" value="16"/>
 	    <ctl name="HPHL Volume" value="16"/>
@@ -132,6 +138,12 @@
 	    <ctl name="RX3 Digital Volume" value="118" min="40" max="124"/>
 	    <ctl name="RX5 Digital Volume" value="118" min="40" max="124"/>
 	</path>
+	<!-- Will work OK for both formats if we left-shift 24-bit samples by 8 bits
+	<path name="digital_volume">
+	    <ctl name="RX3 Digital Volume" value="80" min="0" max="84"/>
+	    <ctl name="RX5 Digital Volume" value="80" min="0" max="84"/>
+	</path>
+	-->
 	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
 	    <ctl name="HPHR Volume" value="16"/>
 	    <ctl name="HPHL Volume" value="16"/>

@@ -996,7 +996,17 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	boolean update_device_settings() {      
 	    if(srv == null) return false;
             try {
-		log_msg("calling set_device for card= hw:" + prefs.card + "," + prefs.device);
+		if(prefs.card == -1 || prefs.device == -1) {
+			String devices[] = AlsaPlayerSrv.getDevices();
+			log_msg("card/device not set yet, trying first available device");
+			if(devices == null || devices[0] == null) {
+				log_err("AlsaPlayerSrv.getDevices() says no devices are available!");
+				return false;
+			}
+			prefs.parse_devstring(devices[0]);
+			log_msg("parse_devstring returned hw:" + prefs.card + "," + prefs.device + " -- set it now!");
+		} else log_msg("calling set_device for card= hw:" + prefs.card + "," + prefs.device);
+
             	if(!srv.set_device(prefs.card, prefs.device)) {
 			Toast.makeText(getApplicationContext(), R.string.strSrvDevInitFailure, Toast.LENGTH_SHORT).show();
                         log_err("failed to set device " + prefs.card + ":" + prefs.device);
@@ -1017,7 +1027,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		super.onCreate(savedInstanceState);
 
             Intent ii = getIntent();
-    		prefs = new Prefs();
+	    shpr = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
+
+	    prefs = new Prefs();
             prefs.load();
             
             // ui preferences
@@ -1080,10 +1092,13 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	}
 
     	// Save/restore user preferences.
+
+	public SharedPreferences shpr = null;
     	
         class Prefs {
         	
-        	public static final String PREFS_NAME = "prefs_avs234_alsaplayer";
+	//     	public static final String PREFS_NAME = "prefs_avs234_alsaplayer";
+
         	public String last_path;
         	public String plist_path;
         	public String plist_name;
@@ -1095,7 +1110,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         	public int last_played_time;
 		public int card, device;
         	public void load() {
-        		SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
+       // 		SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
                 	shuffle = shpr.getBoolean("shuffle", false);		
 	                savebooks = shpr.getBoolean("save_books", false);
 	                last_path = shpr.getString("last_path", null);
@@ -1111,7 +1126,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 		}
         
         	public void save() {
-        	  	SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
+        //	  	SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
         	  	SharedPreferences.Editor editor = shpr.edit();
         	  	editor.putBoolean("shuffle", shuffle);
         	  	editor.putBoolean("save_books", savebooks);
@@ -1130,9 +1145,21 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			log_msg("preferences saved");        	  	
         	}
 		public void parse_devstring() {
-        	//	SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
-        		SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
-			String devstring = settings.getString("device", "00-00");
+			parse_devstring(null);
+		}
+		public void parse_devstring(String devstring) {
+       	//		SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
+	//		String devstring = settings.getString("device", "00-00");
+
+	//		String devstring = shpr.getString("device", null);
+			if(devstring == null) {
+				devstring = shpr.getString("device", null);
+				if(devstring == null) {
+					log_msg("no device in preferences yet!");
+					card = -1; device = -1;
+					return;
+				}
+			}
 			log_msg("devstring is " + devstring);
 			try {
 				Pattern p = Pattern.compile("(\\d+)-(\\d+)");
@@ -1142,7 +1169,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 				device = Integer.parseInt(m.group(2));
 			} catch (Exception e) {
 				e.printStackTrace();
-				card = 0; device = 0;
+				card = -1; device = -1;
 			}
 			log_msg("preferences: card " + card + ", device " + device); 
 		}
@@ -1509,9 +1536,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			log_msg("switching from " + cur_card + ":" + cur_dev + " to " + prefs.card + ":" + prefs.device);
 			try {
 				if(srv.is_running() || srv.is_paused()) srv.stop();
+				update_device_settings();
 			} catch (Exception e) { }
 		}
-		update_device_settings();
 	}    	
 
     	@Override
