@@ -278,7 +278,7 @@ int audio_start(playback_ctx *ctx, int buffered_write)
 	ctx->buff = 0;
 	ctx->audio_thread = 0;
 
-	if(!buffered_write) goto done;
+	if(!buffered_write || alsa_is_mmapped(ctx)) goto done;
 
 	/* format/period_size must be known after alsa_start() */
 	format = alsa_get_format(ctx);
@@ -333,8 +333,10 @@ Linux pc, period size 9648:
 int audio_write(playback_ctx *ctx, void *buff, int size) 
 {
     int i = sync_state(ctx, __func__);	
-	if(i < 0) return -1;
-	i = buffer_put(ctx->buff, buff, size);
+
+        if(i < 0) return -1;
+        i = alsa_is_mmapped(ctx) ? alsa_write_mmapped(ctx, buff, size) : buffer_put(ctx->buff, buff, size);
+
     return (i == size) ? 0 : -1;
 }
 
@@ -466,7 +468,7 @@ jboolean audio_exit(JNIEnv *env, jobject obj, jlong jctx)
     }	
     log_info("audio_exit: ctx=%p",ctx);
     audio_stop(ctx, 1);
-    alsa_stop(ctx); /* just to set stop mixer controls in case it wasn't playing  */	
+    if(!ctx->stopped) alsa_stop(ctx); /* just to set stop mixer controls in case it wasn't playing  */	
     alsa_exit(ctx);
     alsa_free_mixer_controls(ctx);
     if(ctx->xml_mixp) xml_mixp_close(ctx->xml_mixp);

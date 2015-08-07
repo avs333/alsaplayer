@@ -131,7 +131,7 @@ class DeviceXML : public XMLDocument {
 
 DeviceXML::DeviceXML(const char *file, const char *card, const char *device) 
 {
-    XMLElement *cards;	
+    XMLElement *elem;	
 
     card_root = 0; 
     dev_root = 0;
@@ -139,11 +139,11 @@ DeviceXML::DeviceXML(const char *file, const char *card, const char *device)
 
     if(LoadFile(file) != 0) return;
 
-    for(cards = FirstChildElement(); cards; cards = cards->NextSiblingElement()) 
-	if(strcmp(cards->Name(), "cards") == 0) break;
-    if(!cards) return;
+    for(elem = FirstChildElement(); elem; elem = elem->NextSiblingElement()) 
+	if(strcmp(elem->Name(), "cards") == 0) break;
+    if(!elem) return;
 
-    for(card_root = cards->FirstChildElement(); card_root; card_root = card_root->NextSiblingElement()) 
+    for(card_root = elem->FirstChildElement(); card_root; card_root = card_root->NextSiblingElement()) 
 	if(strcmp(card_root->Name(), "card") == 0 && card_root->Attribute("name")) {
 	    int result;
 	    regex_t re;
@@ -164,6 +164,8 @@ DeviceXML::DeviceXML(const char *file, const char *card, const char *device)
     }
     for(dev_root = card_root->FirstChildElement(); dev_root; dev_root = dev_root->NextSiblingElement()) 
 	if(strcmp(dev_root->Name(), "device") == 0 && dev_root->Attribute("id", device)) break;
+	
+
 }
 
 bool DeviceXML::is_valid(const char *dev_str) 
@@ -176,7 +178,7 @@ bool DeviceXML::is_valid(const char *dev_str)
 
 struct nvset *DeviceXML::get_controls(XMLElement *e) 
 {
-    XMLElement *x;
+    XMLElement *x, *r;
     struct nvset *first = 0, *nv;
     const char *name, *value, *min, *max;	
     for(x = e->FirstChildElement(); x; x = x->NextSiblingElement()) {
@@ -201,6 +203,15 @@ struct nvset *DeviceXML::get_controls(XMLElement *e)
 	    nv->name = name;
 	    nv->value = value;
 	    nv->next = 0;
+	} else if(strcmp(x->Name(), "path") == 0) {
+	    const char *c = x->Attribute("name");
+	    if(!c) continue;		
+	    for(r = get_card_root()->FirstChildElement(); r; r = r->NextSiblingElement()) {
+		if(strcmp(r->Name(), "path") == 0 && r->Attribute("name", c)) {
+		    first = get_controls(r);
+		    for(nv = first; nv; nv = nv->next) if(!nv->next) break;
+		}
+	    }
 	}
     }
     return first;
@@ -267,8 +278,8 @@ extern "C" struct nvset *xml_dev_find_ctls(void *xml, const char *name, const ch
     for(e = m->get_dev_root()->FirstChildElement(); e; e = e->NextSiblingElement()) {
 	if(strcmp(e->Name(), "path") == 0 && e->Attribute("name", name)
 	   && (!value || e->Attribute("value", value))) return m->get_controls(e);
-	
 	const char *c = e->Attribute("name");
+	if(!c) continue;
 	for(e1 = m->get_card_root()->FirstChildElement(); e1; e1 = e1->NextSiblingElement()) {
 	    if(strcmp(e1->Name(), "path") == 0 && e1->Attribute("name", c)) {
 		for(e2 = e1->FirstChildElement(); e2; e2 = e2->NextSiblingElement()) {

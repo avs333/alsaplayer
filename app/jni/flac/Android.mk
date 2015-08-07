@@ -4,7 +4,7 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := flac
 
-LOCAL_SRC_FILES += decoder.c shndec.c main.c
+LOCAL_SRC_FILES += decoder.c main.c
 LOCAL_CFLAGS += -O3 -Wall -DBUILD_STANDALONE -finline-functions -fPIC -I. -Iinclude
 
 ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)

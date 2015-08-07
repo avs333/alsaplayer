@@ -188,6 +188,7 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 {
     int i, k, read_bytes, ret = 0, fd = -1;
     int samplerate = 0, channels = 0, bps = 0, b2f;		/* b2f = bytes->frames */
+    int own_buf = 0;
     void *mptr, *mend, *mm = MAP_FAILED;
     void *pcmbuf = 0; 
     const char *file = 0;
@@ -307,8 +308,19 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	}
 
 	format = alsa_get_format(ctx);		/* format selected in alsa_start() */
-	pcmbuf = alsa_get_buffer(ctx);
+
 	read_bytes = alsa_get_period_size(ctx) * channels * (bps/8);
+	own_buf = alsa_is_mmapped(ctx) && (format->fmt == SNDRV_PCM_FORMAT_S24_LE);
+
+	if(own_buf) {
+	    pcmbuf = malloc(read_bytes);
+	    if(!pcmbuf) {
+		log_err("no memory for pcmbuf");
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto done;
+	    }	
+	} else pcmbuf = alsa_get_buffer(ctx);
+
 
 	switch(format->fmt) {
 	    case SNDRV_PCM_FORMAT_S16_LE:	
@@ -382,7 +394,8 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	    pthread_mutex_lock(&ctx->mutex);
             switch(ctx->state) {
                 case STATE_PLAYING:		/* for S24_LE, bytes are copied to pcmbuf (= alsa priv->buf) above */
-		    if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) k = alsa_write(ctx, 0, i/b2f);
+		    if(own_buf) k = alsa_write_mmapped(ctx, pcmbuf, i/b2f);
+		    else if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) k = alsa_write(ctx, 0, i/b2f);
 		    else k = alsa_write(ctx, mptr, i/b2f); /* otherwise supply direct pointer to mmapped space*/		
                     break;
                 case STATE_PAUSED:
@@ -408,6 +421,7 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
     done:
 	if(fd >= 0) close(fd);
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
+	if(own_buf && pcmbuf) free(pcmbuf);
 
 	audio_stop(ctx, 0);
 	if(ret == 0) {

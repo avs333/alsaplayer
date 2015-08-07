@@ -358,7 +358,7 @@ seek_err:
 
 int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start)
 {
-    int i, k, phys_bps, scale, ret = 0, fd = -1;
+    int i, k, phys_bps, ret = 0, fd = -1;
     void *mptr, *mend, *mm = MAP_FAILED;
     FLACContext *fc = 0;
     int32_t *src, *dst; 
@@ -485,7 +485,6 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	ret = audio_start(ctx, 1);
 	if(ret) goto done;
 
-	scale = FLAC_OUTPUT_DEPTH - fc->bps;
 	format = alsa_get_format(ctx);		/* format selected in alsa_start() */
 	phys_bps = format->phys_bits;
 	
@@ -554,7 +553,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 			uint8_t *dst8 = (uint8_t *) pcmbuf + i * 3;
 			src = fc->decoded[i];
 			for(k = 0; k < bsz; k++) {
-			     uint32_t y = (uint32_t) (*src >> scale); 
+			     uint32_t y = (uint32_t) *src; 
 			     dst8[0] = (uint8_t) y;
 			     dst8[1] = (uint8_t) (y >> 8);
 			     dst8[2] = (uint8_t) (y >> 16);
@@ -569,7 +568,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 			src = fc->decoded[i];
 			dst = (int32_t *) pcmbuf + i;
 			for(k = 0; k < bsz; k++) {
-			    *dst = (*src >> scale);
+			    *dst = *src;
 			     dst += fc->channels;
 			     src += stride;	
 			}
@@ -581,7 +580,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 			src = fc->decoded[i];
 			dst16 = (int16_t *) pcmbuf + i;
 		    	for(k = 0; k < bsz; k++) {
-			    *dst16 = (int16_t) (*src >> scale);
+			    *dst16 = (int16_t) *src;
 			     dst16 += fc->channels;
 			     src += stride;	
 			}
@@ -592,7 +591,10 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    ret = LIBLOSSLESS_ERR_INIT;
 		    goto done; 	
 	    }
-	    i = audio_write(ctx, pcmbuf, bsz * fc->channels * (phys_bps/8));
+	    if(!alsa_is_mmapped(ctx))	
+		i = audio_write(ctx, pcmbuf, bsz * fc->channels * (phys_bps/8));
+	    else i = alsa_write_mmapped(ctx, pcmbuf, bsz);
+
 	    if(i < 0) {
 		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 		break;

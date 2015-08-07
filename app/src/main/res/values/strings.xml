@@ -70,7 +70,7 @@
 <string name="strMplayerError">Media player error </string>
 <string name="strDriverMode">Direct hardware access</string>
 <string name="strSaveBooks">Auto-save bookmarks</string>
-<string name="strAbout">Android player for lossless audio files built on May  7, 2015</string>
+<string name="strAbout">Android player for lossless audio files built on Aug  7, 2015</string>
 <string name="strAbout1">About</string>
 <string name="strQuit">Quit</string>
 <string name="strNightMode">Night mode</string>

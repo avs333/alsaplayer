@@ -41,7 +41,7 @@ endif
 
 SRC =	buffer.c alsa.c alsa_offload.c main.c linux_main.c wav_main.c	\
 	compr.c compr0101.c compr0102.c					\
-	flac/shndec.c  flac/main.c  flac/decoder.c			\
+	flac/main.c  flac/decoder.c					\
 	ape/entropy.c  ape/filter-pre.c  ape/parser.c   ape/decoder.c  ape/main.c  ape/predictor.c	
 
 ifeq ($(android), 32)
@@ -54,7 +54,7 @@ SRCX =	tinyxml/tinyxml2.cpp  tinyxml/xmlparser.cpp
 OBJ = $(SRC:.c=.o)
 OBJX = $(SRCX:.cpp=.o)
 
-CFLAGS += -g -O -Wall -DBUILD_STANDALONE -finline-functions -I. -Iinclude
+CFLAGS += -g -Wall -DBUILD_STANDALONE -finline-functions -I. -Iinclude
 CXXFLAGS += $(CFLAGS)
 
 exe_file = alsaplayer

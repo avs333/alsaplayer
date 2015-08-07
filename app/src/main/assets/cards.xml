@@ -70,7 +70,7 @@
 
 
   <card name="(msm8994).*" builtin="1">
-    <!-- Terrible distortions @ 24 bit	
+    <!-- "Deep buffer" may be cured by setting "Audio Stream 0 App Type Cfg" to "0 0 0" ([app_type acdb_id rate])
     <device id="0">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
@@ -81,7 +81,7 @@
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="0"/> </path>
 	<path name="common_pcm_settings"/>
     </device>
-    <!-- Dunno what it tries to spit out	
+    <!-- "Ultra low latency" doesn't support anything other than 16/48k
     <device id="4">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia3" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia3" value="0"/> </path>
@@ -106,11 +106,6 @@
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="0"/> </path>
 	<path name="common_offload_settings"/>
-    </device>
-    <device id="24">
-	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia6" value="1"/> </path>
-	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia6" value="0"/> </path>
-	<path name="common_pcm_settings"/>
     </device>
     <device id="35">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia9" value="1"/> </path>

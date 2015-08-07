@@ -42,9 +42,7 @@
 
 #include "decoder.h"
 
-#if defined(CPU_COLDFIRE)
-#include "coldfire.h"
-#elif defined(CPU_ARM)
+#ifdef CPU_ARM
 #include "arm.h"
 #endif
 
@@ -251,8 +249,7 @@ SIGSEGV
 static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order) ICODE_ATTR_FLAC;
 static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order)
 {
-    int sum, i, j;
-    int64_t wsum;
+    int i;
     int coeff_prec, qlevel;
     int coeffs[pred_order];
 
@@ -284,38 +281,27 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order)
         return -8;
 
     if ((s->bps + coeff_prec + av_log2(pred_order)) <= 32) {
-        #if defined(CPU_COLDFIRE)
-        (void)sum;
-        lpc_decode_emac(s->blocksize - pred_order, qlevel, pred_order,
-                        decoded + pred_order, coeffs);
-        #elif defined(CPU_ARM)
-        (void)sum;
+        #ifdef CPU_ARM
         lpc_decode_arm(s->blocksize - pred_order, qlevel, pred_order,
                        decoded + pred_order, coeffs);
         #else
         for (i = pred_order; i < s->blocksize; i++)
         {
-            sum = 0;
+            int j, sum = 0;
             for (j = 0; j < pred_order; j++)
                 sum += coeffs[j] * decoded[i-j-1];
             decoded[i] += sum >> qlevel;
         }
         #endif
     } else {
-        #if defined(CPU_COLDFIRE)
-        (void)wsum;
-        (void)j;
-        lpc_decode_emac_wide(s->blocksize - pred_order, qlevel, pred_order,
-                             decoded + pred_order, coeffs);
-        #else
         for (i = pred_order; i < s->blocksize; i++)
         {
-            wsum = 0;
+            int j;
+	    int64_t wsum = 0;
             for (j = 0; j < pred_order; j++)
                 wsum += (int64_t)coeffs[j] * (int64_t)decoded[i-j-1];
             decoded[i] += wsum >> qlevel;
         }
-        #endif
     }
     
     return 0;
@@ -521,7 +507,7 @@ static int flac_downmix(FLACContext *s)
     int32_t *FL, *FR, *FC, *SB, *RL, *RR;
     int32_t *outL = s->decoded[0];
     int32_t *outR = s->decoded[1];
-    int i, scale=FLAC_OUTPUT_DEPTH-s->bps;
+    int i;
 
     switch(s->channels)
     {
@@ -534,8 +520,8 @@ static int flac_downmix(FLACContext *s)
             for (i=0; i<s->blocksize; ++i) {
                 int32_t a = *(FL)*2 + *(FC);
                 int32_t b = *(FR)*2 + *(FC);
-                *outL++ = ((a + (a<<2))>>4) << scale; /* 1/3 ~= 5>>4 */
-                *outR++ = ((b + (b<<2))>>4) << scale; /* 1/3 ~= 5>>4 */
+                *outL++ = ((a + (a<<2))>>4); /* 1/3 ~= 5>>4 */
+                *outR++ = ((b + (b<<2))>>4); /* 1/3 ~= 5>>4 */
                 FL++; FR++; FC++;
             }
             break;
@@ -549,8 +535,8 @@ static int flac_downmix(FLACContext *s)
             for (i=0; i<s->blocksize; ++i) {
                 int32_t a = *(FL) + *(RL);
                 int32_t b = *(FR) + *(RR);
-                *outL++ = (a>>1) << scale;
-                *outR++ = (b>>1) << scale;
+                *outL++ = (a>>1);
+                *outR++ = (b>>1);
                 FL++; FR++; RL++; RR++;
             }
             break;
@@ -565,8 +551,8 @@ static int flac_downmix(FLACContext *s)
             for (i=0; i<s->blocksize; ++i) {
                 int32_t a = *(FL)*2 + *(FC) + *(RL)*2;
                 int32_t b = *(FR)*2 + *(FC) + *(RR)*2;
-                *outL++ = ((a + (a<<1))>>4) << scale; /* 3>>4 ~= 1/5 */
-                *outR++ = ((b + (b<<1))>>4) << scale; /* 3>>4 ~= 1/5 */
+                *outL++ = ((a + (a<<1))>>4); /* 3>>4 ~= 1/5 */
+                *outR++ = ((b + (b<<1))>>4); /* 3>>4 ~= 1/5 */
                 FL++; FR++; FC++; RL++; RR++;
             }
             break;
@@ -582,8 +568,8 @@ static int flac_downmix(FLACContext *s)
             for (i=0; i<s->blocksize; ++i) {
                 int32_t a = *(FL)*2 + *(SB) + *(FC) + *(RL)*2;
                 int32_t b = *(FR)*2 + *(SB) + *(FC) + *(RR)*2;
-                *outL++ = ((a + (a<<2))>>5) << scale; /* 5>>5 ~= 1/6 */
-                *outR++ = ((b + (b<<2))>>5) << scale; /* 5>>5 ~= 1/6 */
+                *outL++ = ((a + (a<<2))>>5); /* 5>>5 ~= 1/6 */
+                *outR++ = ((b + (b<<2))>>5); /* 5>>5 ~= 1/6 */
                 FL++; FR++; SB++; FC++; RL++; RR++;
             }
             break;
@@ -601,7 +587,6 @@ int flac_decode_frame(FLACContext *s,
     int tmp;
     int i;
     int framesize;
-    int scale;
 
     init_get_bits(&s->gb, buf, buf_size*8);
 
@@ -622,11 +607,10 @@ int flac_decode_frame(FLACContext *s,
              for (i = 0; i < s->blocksize; i++) {\
                 int32_t a = s->decoded[0][i];\
                 int32_t b = s->decoded[1][i];\
-                s->decoded[0][i] = (left)  << scale;\
-                s->decoded[1][i] = (right) << scale;\
+                s->decoded[0][i] = (left);\
+                s->decoded[1][i] = (right);\
              }\
 
-    scale=FLAC_OUTPUT_DEPTH-s->bps;
     switch(s->decorrelation)
     {
         case INDEPENDENT:
@@ -644,7 +628,7 @@ int flac_decode_frame(FLACContext *s,
             DECORRELATE(a+b, b)
             break;
         case MID_SIDE:
-            DECORRELATE( (a-=b>>1) + b, a)
+            DECORRELATE( (a-=b>>1) + b, a)	/* a + b/2, a - b/2 */
             break;
     }
 

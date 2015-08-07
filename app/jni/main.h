@@ -17,7 +17,7 @@ extern "C" {
 #else
 extern int quiet_run;
 #define log_info(fmt, args...) do { if(!quiet_run) printf("[%s] " fmt "\n", __func__, ##args); } while(0)
-#define log_err(fmt, args...)  do { fprintf(stderr, "[%s] " fmt "\n", __func__, ##args); } while(0)
+#define log_err(fmt, args...)  do { printf("[%s] " fmt "\n", __func__, ##args); } while(0)
 #endif
 
 #ifndef timeradd
@@ -100,6 +100,7 @@ extern int alsa_select_device(playback_ctx *ctx, int card, int device);
 extern int alsa_start(playback_ctx *ctx);
 extern void alsa_stop(playback_ctx *ctx);
 extern ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count);
+extern ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count);
 extern bool alsa_pause(playback_ctx *ctx);
 extern bool alsa_resume(playback_ctx *ctx);
 extern bool alsa_set_default_volume(playback_ctx *ctx);
@@ -111,6 +112,7 @@ extern void *alsa_get_buffer(playback_ctx *ctx);
 extern int alsa_get_period_size(playback_ctx *ctx);
 extern const playback_format_t *alsa_get_format(playback_ctx *ctx);
 extern int alsa_is_offload(playback_ctx *ctx);
+extern int alsa_is_mmapped(playback_ctx *ctx);
 #ifdef ANDROID
 extern int alsa_get_devices(char ***dev_names);
 extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);

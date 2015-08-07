@@ -962,7 +962,13 @@ public class AlsaPlayerSrv extends Service {
 	    while(true) {	
 		String devpath = "/dev/snd/controlC" + card;
 		File ctl = new File(devpath);
-		if(!ctl.exists()) break;
+		if(!ctl.exists()){
+		    if(card == 0) {
+			log_err("no mixer for first card, exiting");
+			return null;
+		    }	 
+		    break;
+		}
 		card++;
 		if(ctl.canRead() && ctl.canWrite()) continue;
 		try {
@@ -976,7 +982,7 @@ public class AlsaPlayerSrv extends Service {
 		    return null;	
 		}
 	    }
-	    log_msg("getDevices: premissions set");
+	    log_msg("getDevices: premissions set for " + card + (card == 1 ? " card" : " cards"));
 	    return getAlsaDevices();
 	}
 

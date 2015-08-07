@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <pthread.h>
 #include <limits.h>
+#include <poll.h>
 #ifdef ANDROID
 #include <android/log.h>
 #endif
@@ -83,9 +84,13 @@ static void alsa_close(playback_ctx *ctx)
 	priv = (alsa_priv *) ctx->alsa_priv;
 	if(!priv) return;		
 	if(priv->fd >= 0) close(priv->fd);
-	if(priv->buf) free(priv->buf);
-	priv->fd = -1;	
+	if(priv->is_mmapped) {
+	    if(priv->buf) munmap(priv->buf, priv->buf_bytes);	
+	    if(priv->sync_ptr) free(priv->sync_ptr);
+	} else if(priv->buf) free(priv->buf);
+	priv->fd = -1;
 	priv->buf = 0;
+	priv->sync_ptr = 0;
 }
 
 /* free per device params */
@@ -164,10 +169,11 @@ static void param_init(struct snd_pcm_hw_params *p)
 }
 
 static inline void setup_hwparams(struct snd_pcm_hw_params *params, 
-	int fmt, int rate, int channels, int periods, int period_size) 
+	int fmt, int rate, int channels, int periods, int period_size, int mmapped) 
 {
     param_init(params);
-    param_set_mask(params, SNDRV_PCM_HW_PARAM_ACCESS, SNDRV_PCM_ACCESS_RW_INTERLEAVED);
+    param_set_mask(params, SNDRV_PCM_HW_PARAM_ACCESS, mmapped ? SNDRV_PCM_ACCESS_MMAP_INTERLEAVED 
+	: SNDRV_PCM_ACCESS_RW_INTERLEAVED);
     param_set_mask(params, SNDRV_PCM_HW_PARAM_SUBFORMAT, SNDRV_PCM_SUBFORMAT_STD);
     if(fmt) param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT, fmt);		/* we don't support U8 = 0 */
     if(rate) param_set_int(params, SNDRV_PCM_HW_PARAM_RATE, rate);
@@ -187,6 +193,27 @@ static inline char *cat_str(char *dest, const char *src)
 	    return strcpy(ret, src);	
 	}
 }
+
+static inline int sync_ptr(alsa_priv *priv, int flags)
+{ 
+    if(!priv || !priv->sync_ptr) {
+	log_err("invalid arguments");
+	return -1;
+    }		
+    priv->sync_ptr->flags = flags;
+    return ioctl(priv->fd, SNDRV_PCM_IOCTL_SYNC_PTR, priv->sync_ptr);		
+}
+
+static inline int get_avail(alsa_priv *priv)
+{
+    int avail;
+	if(sync_ptr(priv, SNDRV_PCM_SYNC_PTR_HWSYNC) != 0) return -1;
+	avail = priv->sync_ptr->s.status.hw_ptr + priv->buffer_size - priv->sync_ptr->c.control.appl_ptr;
+	if(avail < 0) avail += priv->boundary;
+	else if(avail > (int) priv->boundary) avail -= priv->boundary;
+    return avail;
+}
+
 
 #define CODEC_MAX	31	/* to fit in one word */
 static const char *compr_codecs[CODEC_MAX+1] = {
@@ -377,8 +404,9 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	}
 
     	if(!priv->is_offload) c = cat_str(c, "Supported formats:\n");
+
 	for(k = 0; k < n_supp_formats; k++) {	
-	    if(!priv->is_offload) setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0);
+	    if(!priv->is_offload) setup_hwparams(&hwparams, supp_formats[k].fmt, 0, 0, 0, 0, priv->is_mmapped);
 	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_formats_mask |= supp_formats[k].mask;
 		if(!priv->is_offload) {
@@ -408,7 +436,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	if(!priv->is_offload) c = cat_str(c, "Supported samplerates:\n");
 	for(k = 0; k < n_supp_rates; k++) {
 	    int rate = supp_rates[k].rate;	
-	    if(!priv->is_offload) setup_hwparams(&hwparams, 0, rate, 0, 0, 0);	
+	    if(!priv->is_offload) setup_hwparams(&hwparams, 0, rate, 0, 0, 0, priv->is_mmapped);	
 	    if(priv->is_offload || ioctl(fd, SNDRV_PCM_IOCTL_HW_REFINE, &hwparams) == 0) {
 		priv->supp_rates_mask |= supp_rates[k].mask;
 		if(!priv->is_offload) {
@@ -432,9 +460,10 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	priv->devinfo = c;
 	close(fd);
 	priv->xml_dev = xml_dev;	
-	if(priv->is_offload) log_info("selected card %d device %d for offload playback", card, device);	
-	else log_info("selected card=%d (%s) device=%d (format/rate masks=0x%x/0x%x)", 
-		card, priv->card_name, device, priv->supp_formats_mask, priv->supp_rates_mask);
+	if(priv->is_offload) log_info("selected card %d device %d [%smmapped] for offload playback", card, device, 
+		priv->is_mmapped ? "" : "not ");	
+	else log_info("selected card=%d (%s) device=%d [%smmapped] (format/rate masks=0x%x/0x%x)", 
+		card, priv->card_name, device, priv->is_mmapped ? "" : "not ", priv->supp_formats_mask, priv->supp_rates_mask);
 	return 0;
 
     err_exit:
@@ -507,7 +536,7 @@ int alsa_start(playback_ctx *ctx)
 	}
 	log_info("pcm opened");
 
-	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, 0, 0);
+	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, 0, 0, priv->is_mmapped);
 
  	log_info("Trying: format=%s rate=%d channels=%d bps=%d (phys=%d)", priv->format->str, 
 	    ctx->samplerate, ctx->channels, ctx->bps, priv->format->phys_bits);	
@@ -539,8 +568,8 @@ int alsa_start(playback_ctx *ctx)
 #else
 	priv->chunks = periods_max;
 	priv->chunk_size = persz_max;
-	if(priv->chunks > 32) priv->chunks = 32; 
 #endif
+	if(priv->chunks > 32) priv->chunks = 32; 
 
 	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->chunk_size);
 	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS, priv->chunks);
@@ -576,7 +605,7 @@ int alsa_start(playback_ctx *ctx)
 		ret = LIBLOSSLESS_ERR_AU_SETCONF;
 		goto err_exit;
 	    }
-	    setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, priv->chunks, 0);
+	    setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, priv->chunks, 0, priv->is_mmapped);
 	    param_set_range(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->chunk_size, persz_max);		
 	    log_info("retrying with period_size %d periods %d", priv->chunk_size, priv->chunks);	
 	}
@@ -589,27 +618,46 @@ int alsa_start(playback_ctx *ctx)
 #endif
 	log_info("selecting period size %d, periods %d", priv->chunk_size, priv->chunks);
 
+	priv->buffer_size = priv->chunk_size * priv->chunks;
+
 	priv->buf_bytes = priv->chunk_size * ctx->channels * priv->format->phys_bits/8;
-	priv->buf = malloc(priv->buf_bytes);
-	if(!priv->buf) {
-	    log_err("no memory for buffer");
-	    ret = LIBLOSSLESS_ERR_NOMEM;
-	    goto err_exit;	
+
+	if(priv->is_mmapped) {
+	    priv->buf_bytes *= priv->chunks;	/* mmap the whole buffer */
+	    priv->buf = mmap(NULL, priv->buf_bytes, PROT_READ | PROT_WRITE, 
+		MAP_FILE | MAP_SHARED, priv->fd, 0);
+	    if(priv->buf == MAP_FAILED) {
+		priv->buf = 0;
+		log_err("failed to mmap buffer");
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto err_exit;
+	    }
+	    priv->boundary = priv->buffer_size;		/* to match kernel code */
+	    while(priv->boundary * 2 <= INT_MAX - priv->buffer_size) priv->boundary *= 2;
+	    	
+	} else {	
+	    priv->buf = malloc(priv->buf_bytes);
+	    if(!priv->buf) {
+		log_err("no memory for buffer");
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto err_exit;	
+	    }
+	    memset(priv->buf, 0, priv->buf_bytes);
 	}
-        memset(priv->buf, 0, priv->buf_bytes);
 
 	memset(&swparams, 0, sizeof(swparams));
 	swparams.tstamp_mode = SNDRV_PCM_TSTAMP_ENABLE;
 	swparams.period_step = 1;
 
-#if 0
-	swparams.avail_min = priv->chunk_size; 	/* by default */
-#else
-	/* wake up as soon as possible */
-	swparams.avail_min = 1;
-#endif
+	if(priv->is_mmapped) swparams.avail_min = priv->chunk_size; 	/* by default */
+	else swparams.avail_min = 1;					/* wake up as soon as possible */
+
 	swparams.start_threshold = priv->chunk_size;
-	swparams.boundary = priv->chunk_size * priv->chunks;
+#if 0
+	swparams.boundary = priv->buffer_size;			
+#else
+	swparams.boundary = priv->is_mmapped ? priv->boundary : priv->buffer_size;			
+#endif
 
 /* PCM is automatically stopped in SND_PCM_STATE_XRUN state when available frames is >= threshold. 
   If the stop threshold is equal to boundary (also software parameter - sw_param) then automatic stop will be disabled 
@@ -658,15 +706,43 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 	    }
 	}
 #endif
+	if(priv->is_mmapped) {
+	    priv->sync_ptr = calloc(1, sizeof(*priv->sync_ptr));
+	    if(!priv->sync_ptr) {
+		log_err("no memory for sync_ptr");
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto err_exit;
+	    }	
+
+	    memset(priv->buf, 0, priv->buf_bytes);
+	//  priv->sync_ptr->c.control.avail_min = 1;
+	    priv->sync_ptr->c.control.avail_min = priv->chunk_size;
+	    priv->sync_ptr->c.control.appl_ptr = priv->chunk_size;
+	    		
+	    sync_ptr(priv, 0); 	    			
+	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_START) < 0) {
+		log_info("start() failed, exiting");
+		ret = LIBLOSSLESS_ERR_AU_SETUP;
+		goto err_exit;	
+	   }
+	}
+
 	log_info("setup complete");
+
 	return 0;
 
     err_exit:	
+	ctx->stopped = 1;
 	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
 	if(priv->buf) {
-	    free(priv->buf);
+	    if(priv->is_mmapped) munmap(priv->buf, priv->buf_bytes);
+	    else free(priv->buf);
 	    priv->buf = 0;	
 	    priv->buf_bytes = 0;
+	}
+	if(priv->sync_ptr) {
+	    free(priv->sync_ptr);
+	    priv->sync_ptr = 0;
 	}
 	if(priv->fd >= 0) close(priv->fd);
 	priv->fd = -1;
@@ -674,6 +750,7 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 
     return ret;
 }
+
 /* Count in samples. If buf is zero, take data from priv->buf */
 ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 {
@@ -757,6 +834,68 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
     return written;
 }
 
+
+ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count) 
+{
+    int avail, ret;
+    alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;	
+    struct pollfd fds;
+    unsigned int pcm_offset, appl_ptr;
+    size_t written = 0, to_write;
+    int f2b = ctx->channels * priv->format->phys_bits/8;	    
+
+//  log_info("writing %ld", count);			
+	
+    while(written != count) {	
+	to_write = count - written;
+    	if(to_write > priv->chunk_size) to_write = priv->chunk_size;
+	avail = get_avail(priv);	
+	if(avail < 0) {
+	    log_err("get_avail() returned %d", avail);	
+	    return 0;
+	}
+//	log_info("avail = %d", avail);
+	while(avail < to_write) {	/* we want at least one chunk */
+//	    log_info("poll: avail %d to_write %ld", avail, to_write);
+	    fds.fd = priv->fd;
+	    fds.events = POLLOUT | POLLERR | POLLNVAL;
+	    errno = 0;
+	    ret = poll(&fds, 1, -1);
+	    if(ret < 0 || (fds.revents & (POLLERR | POLLNVAL))) {
+		if(errno == EINTR) continue;
+                log_err("poll returned error: %s", strerror(errno));
+                return -1;
+            } else if(ret == 0)	{
+		log_err("timeout in poll()");
+		return 0;
+	    }	
+	    avail = get_avail(priv);	
+	    if(avail < 0) {
+		log_err("get_avail() returned %d", avail);	
+		return 0;
+	    }
+	} 
+	pcm_offset = priv->sync_ptr->c.control.appl_ptr % priv->buffer_size;
+
+	/* continuous frames available */
+	avail = priv->buffer_size - pcm_offset;
+	if(to_write > avail) to_write = avail;
+//	log_info("cont avail = %d, %ld to write @ %ld [%d] st=%d", 
+//		avail, to_write, priv->sync_ptr->c.control.appl_ptr, pcm_offset, priv->sync_ptr->s.status.state);
+	memcpy(priv->buf + pcm_offset * f2b, buf + written * f2b, to_write * f2b);
+
+	/* update pointers */	
+	appl_ptr = priv->sync_ptr->c.control.appl_ptr + to_write;
+        if(appl_ptr > priv->boundary) appl_ptr -= priv->boundary;
+	sync_ptr(priv, 0);
+
+        priv->sync_ptr->c.control.appl_ptr = appl_ptr;
+	written += to_write;
+//	log_info("%ld written", written);
+    }	
+    return count;	
+}
+
 void *alsa_get_buffer(playback_ctx *ctx)
 {
     alsa_priv *priv;	
@@ -790,15 +929,25 @@ int alsa_is_offload(playback_ctx *ctx)
     return ((alsa_priv *) ctx->alsa_priv)->is_offload;
 }
 
+int alsa_is_mmapped(playback_ctx *ctx) 
+{
+    if(!ctx || !ctx->alsa_priv) return 0;
+    return ((alsa_priv *) ctx->alsa_priv)->is_mmapped;
+}
+
 void alsa_stop(playback_ctx *ctx) 
 {
-    alsa_priv *priv;	
-
+    alsa_priv *priv;
+	
+	if(!ctx || !(priv = (alsa_priv *) ctx->alsa_priv)) {
+	    log_err("called with no context");	
+	    return;	
+	}
+	log_info("closing audio stream");	
+#if 0
 	if(!ctx || !ctx->alsa_priv) return;
 	priv = (alsa_priv *) ctx->alsa_priv;
 	if(priv->fd >= 0) {
-	    log_info("closing audio stream");	
-#if 0
 	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_DRAIN) == 0) log_info("pcm_drain: success");	
 	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_DROP) == 0) log_info("pcm_drop: success");	
 	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_RESET) == 0) log_info("pcm_reset: success");	
@@ -810,14 +959,11 @@ void alsa_stop(playback_ctx *ctx)
 			fcntl(priv->fd, F_SETFL, flags);
 		    }
 	    }		
-#endif
-	    close(priv->fd);
-	    log_info("audio stream closed");
 	}
-	priv->fd = -1;
+#endif
+	alsa_close(ctx);
+	log_info("audio stream closed");
 	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);	
-	if(priv->buf) free(priv->buf);
-	priv->buf = 0;
 }
 
 bool alsa_pause(playback_ctx *ctx) 
