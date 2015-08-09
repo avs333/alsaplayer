@@ -443,7 +443,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
 
 	log_info("exiting, ret=%d, err=%d", ret, ctx->alsa_error);
-	audio_stop(ctx, 0);
+	playback_complete(ctx, __func__);
 
     return ret;
 }

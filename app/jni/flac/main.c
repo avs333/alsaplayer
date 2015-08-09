@@ -529,8 +529,6 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		ret = LIBLOSSLESS_ERR_DECODE;
 		goto done;
 	    }
-	    mptr += fc->gb.index/8; /* step over the bytes consumed by flac_decode_frame() */	
-
 	    bsz = (fc->blocksize >> ctx->rate_dec);
 	    stride = (1 << ctx->rate_dec);	
 	    
@@ -590,16 +588,19 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    log_err("internal error: format not supported");
 		    ret = LIBLOSSLESS_ERR_INIT;
 		    goto done; 	
-	    }
-	    if(!alsa_is_mmapped(ctx))	
-		i = audio_write(ctx, pcmbuf, bsz * fc->channels * (phys_bps/8));
-	    else i = alsa_write_mmapped(ctx, pcmbuf, bsz);
+	     }
 
-	    if(i < 0) {
+	     if(!alsa_is_mmapped(ctx)) bsz *= fc->channels * (phys_bps/8); /* need bytes rather than frames */
+		
+	     i = audio_write(ctx, pcmbuf, bsz);
+	     if(i < 0) {
 		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 		break;
-	    }	
-	}
+	    }
+
+	    mptr += fc->gb.index/8; /* step over the bytes consumed by flac_decode_frame() */	
+
+	} /* while(mptr < mend) */
 
     done:
 	if(fc) flac_exit(fc);
@@ -609,9 +610,9 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	if(ret == 0) {
 	    gettimeofday(&tstop,0);
 	    timersub(&tstop, &tstart, &tdiff);
-	    log_info("playback complete in %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
+	    log_info("playback time %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
 	} else log_info("exiting, ret=%d, err=%d", ret, ctx->alsa_error);
-	audio_stop(ctx, 0);
+	playback_complete(ctx, __func__);
 	
     return ret;
 }

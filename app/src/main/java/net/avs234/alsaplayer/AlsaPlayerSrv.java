@@ -737,41 +737,45 @@ public class AlsaPlayerSrv extends Service {
 	        }
 		AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
 		File f = new File("/dev/snd/controlC0");
-		if(!f.canRead() && !f.canWrite()) AlsaPlayerSrv.setPermissions();
+		if(!f.canRead() || !f.canWrite()) AlsaPlayerSrv.setPermissions();
 	}
 
 	public static boolean setPermissions() {
-        boolean result = false;
-        java.lang.Process process = null;
-        DataOutputStream os = null;
-        BufferedReader is;
-        try {
-            process = new ProcessBuilder("su").redirectErrorStream(true).start();
-            os = new DataOutputStream(process.getOutputStream());
-            os.writeBytes("chmod 0777 /dev/snd/*\n");
-            os.flush();
-            os.write(("setenforce 0\n").getBytes());
-            os.flush();
-            os.write(("toolbox setenforce 0\n").getBytes());
-            os.flush();
-            os.writeBytes("exit\n");
-            os.flush();
-            process.waitFor();
-            result = true;
-        } catch (IOException e) {
-        } catch (InterruptedException e) {
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
-            try {
-                if (os != null) {
-                    os.close();
-                }
-            } catch (IOException e) {
-            }
-        }
-        return result;
+	    boolean result = false;
+	    java.lang.Process process = null;
+	    DataOutputStream os = null;
+	    BufferedReader is;
+		log_msg("trying to change permissions and set selinux to permissive mode");
+	        try {
+        	    process = new ProcessBuilder("su").redirectErrorStream(true).start();
+	            os = new DataOutputStream(process.getOutputStream());
+	            os.writeBytes("chmod 0666 /dev/snd/*\n");
+	            os.flush();
+	            os.write(("setenforce 0\n").getBytes());
+	            os.flush();
+	            os.write(("toolbox setenforce 0\n").getBytes());
+	            os.flush();
+	            os.writeBytes("exit\n");
+	            os.flush();
+	            process.waitFor();
+	            result = true;
+	        } catch (IOException e) {
+			log_err("got IOException: " + e.toString());
+	        } catch (InterruptedException e) {
+			log_err("got InterruptedException: " + e.toString());
+	        } finally {
+	            if (process != null) {
+	                process.destroy();
+	            }
+	            try {
+	                if (os != null) {
+	                    os.close();
+	                }
+	            } catch (IOException e) {
+	            }
+	        }
+		log_msg("return: " + result);
+            return result;
     }
 		
 	@Override

@@ -351,9 +351,6 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	gettimeofday(&tstart,0);
 
 	while(mptr < mend) {
-
-	    i = sync_state(ctx, __func__);
-	    if(i < 0) break;
 	
 	    i = (mend - mptr < read_bytes) ? mend - mptr : read_bytes;
 	    if(i < read_bytes && cur_map_off + cur_map_len != flen) {	/* too close to end of mapped region, but not at eof */
@@ -374,6 +371,8 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		log_info("remapped");
 	    }
 
+	    if(!own_buf) pcmbuf = alsa_get_buffer(ctx);	/* update pointer in case of pause */
+	
 	    if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) {
 		int8_t *src = (int8_t *) mptr;
 		int8_t *dst = (int8_t *) pcmbuf;
@@ -391,26 +390,25 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		}
 	    }
 
-	    pthread_mutex_lock(&ctx->mutex);
-            switch(ctx->state) {
-                case STATE_PLAYING:		/* for S24_LE, bytes are copied to pcmbuf (= alsa priv->buf) above */
-		    if(own_buf) k = alsa_write_mmapped(ctx, pcmbuf, i/b2f);
-		    else if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) k = alsa_write(ctx, 0, i/b2f);
-		    else k = alsa_write(ctx, mptr, i/b2f); /* otherwise supply direct pointer to mmapped space*/		
+            switch(sync_state(ctx, __func__)) {
+                case STATE_PLAYING:		
+		    if(alsa_is_mmapped(ctx)) {
+			if(own_buf) k = alsa_write_mmapped(ctx, pcmbuf, i/b2f);
+			else k = alsa_write_mmapped(ctx, mptr, i/b2f);
+		    } else {			    	
+		    	/* NB: alsa_write(ctx,0,count) means take bytes from alsa priv->buf */		
+			if(format->fmt == SNDRV_PCM_FORMAT_S24_LE) k = alsa_write(ctx, 0, i/b2f);
+		 	else k = alsa_write(ctx, mptr, i/b2f); 
+		    }
                     break;
-                case STATE_PAUSED:
-                    pthread_mutex_unlock(&ctx->mutex);
-                    continue;
+                case STATE_STOPPING:
                 case STATE_STOPPED:
-                    pthread_mutex_unlock(&ctx->mutex);
                     log_info("stopped before write");
 		    goto done;
                 default:
-                    pthread_mutex_unlock(&ctx->mutex);
-                    log_err("cannot happen");   
+                    log_err("internal error: this cannot happen");   
 		    goto done;	
             }
-	    pthread_mutex_unlock(&ctx->mutex);
 	    if(k <= 0) {
 		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 		break;
@@ -423,12 +421,13 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
 	if(own_buf && pcmbuf) free(pcmbuf);
 
-	audio_stop(ctx, 0);
 	if(ret == 0) {
 	    gettimeofday(&tstop,0);
 	    timersub(&tstop, &tstart, &tdiff);
-	    log_info("playback complete in %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
+	    log_info("playback time %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
 	} else log_info("stopping playback on error: ret=%d, err=%d", ret, ctx->alsa_error);
+
+	playback_complete(ctx, __func__);
 	
     return ret;
 

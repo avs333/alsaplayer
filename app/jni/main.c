@@ -33,223 +33,105 @@ static char mixer_paths_file[PATH_MAX];
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
 #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
 
+static void *audio_write_thread(void *a); 
 
-/* Returns 0 in paused state, -1 if stopped.
-   Blocks in paused state. */
+/* Called before attempting any low-level writes of audio data.
+   Blocks in STATE_PAUSE/STATE_PAUSING states and never returns them.
+   If the state on entry was STATE_PAUSING, attempts to pause stream
+   and wakes up audio_pause() waiting for the result. 
+*/
 
-int sync_state(playback_ctx *ctx, const char *func) {
-    pthread_mutex_lock(&ctx->mutex);	
-    if(ctx->state != STATE_PLAYING) {	
+enum playback_state sync_state(playback_ctx *ctx, const char *func) {
+    bool ret;
+    volatile enum playback_state state;
+	pthread_mutex_lock(&ctx->mutex);	
 	if(ctx->state == STATE_PAUSED) {
-	    log_info("%s: pause: blocking", func);
+	    log_info("%s: in paused state: blocking", func);
 	    pthread_cond_wait(&ctx->cond_resumed, &ctx->mutex); /* block until PAUSED */	
-	    pthread_mutex_unlock(&ctx->mutex);	
+	    log_info("%s: resuming after pause", func);	
+	} else if(ctx->state == STATE_PAUSING) {
+	    ret = alsa_is_offload(ctx) ? alsa_pause_offload(ctx) : alsa_pause(ctx);	
+	    if(ret) {
+		ctx->state = STATE_PAUSED;
+		log_info("%s: switched to paused state: blocking", func);
+	    } else log_err("failed to pause in %s", func);
+	    pthread_cond_signal(&ctx->cond_paused);
+	    pthread_cond_wait(&ctx->cond_resumed, &ctx->mutex);	
 	    log_info("%s: resuming after pause", func);	
 	}
-	if(ctx->state == STATE_STOPPED) {
-	    log_info("%s: stopped from outside", func);	
-	    pthread_mutex_unlock(&ctx->mutex);	
-	    return -1;	/* must stop */
-	}						
-    }
-    pthread_mutex_unlock(&ctx->mutex);	
-    return 0;
+	state = ctx->state;	
+	pthread_mutex_unlock(&ctx->mutex);	
+    return state;
 }
 
-#if 0
-/* to be removed */
-static void thread_exit(int j) {
-    log_info("signal %d received",j);	
-}
-#endif
-
-#define TEST_TIMING	1
-
-static void *audio_write_thread(void *a) 
+void playback_complete(playback_ctx *ctx, const char *func)
 {
-    playback_ctx *ctx = (playback_ctx *) a;
-    int i, k, f2b;
-    const playback_format_t *format = alsa_get_format(ctx);
-    void *pcm_buf = alsa_get_buffer(ctx);
-    int period_size = alsa_get_period_size(ctx);
-#if 0
-    sigset_t set;
-    struct sigaction sact = { .sa_handler = thread_exit,  };
-#endif
+    pthread_mutex_lock(&ctx->mutex);
+    ctx->state = STATE_STOPPED;	
+    log_info("playback complete in %s", func);
+    pthread_mutex_unlock(&ctx->mutex);
 
-#ifdef TEST_TIMING
-    struct timeval tstart, tstop, tdiff;
-    int  writes = 0, gets = 0;
-    unsigned long long us_write = 0, us_get = 0;	
-#endif
+    pthread_mutex_lock(&ctx->stop_mutex);
+    pthread_cond_signal(&ctx->cond_stopped);	
+    pthread_mutex_unlock(&ctx->stop_mutex);
 
-	if(!pcm_buf) {
-	    log_err("cannot obtain alsa buffer, exiting");	
-	    return 0;
-	}
-	if(!format) {
-	    log_err("cannot determine sample format, exiting");	
-	    return 0;
-	}
-	f2b = ctx->channels * (format->phys_bits/8);
-
-	log_info("entering");
-#if 0
-	sigaction(SIGUSR1, &sact, 0);
-	sigemptyset(&set);
-	sigaddset(&set, SIGUSR1);
-	pthread_sigmask(SIG_UNBLOCK, &set, 0);
-#endif
-
-	while(1) {
-	    k = sync_state(ctx, __func__);
-	    if(k < 0) break;
-#ifdef TEST_TIMING
-	    gettimeofday(&tstart,0);
-#endif
-	    k = buffer_get(ctx->buff, pcm_buf, period_size * f2b);
-#ifdef TEST_TIMING
-	    gettimeofday(&tstop,0);
-	    timersub(&tstop, &tstart, &tdiff);
-	    us_get += tdiff.tv_usec;
-	    gets++;	
-#endif
-	    if(k <= 0) {
-		log_info("buffer stopped or empty, exiting");
-		break;
-	    }
-	    pthread_mutex_lock(&ctx->mutex);
-	    switch(ctx->state) {
-		case STATE_PLAYING:
-#ifdef TEST_TIMING
-		    gettimeofday(&tstart,0);
-#endif
-		    i = alsa_write(ctx, 0, k/f2b);
-#ifdef TEST_TIMING
-		    gettimeofday(&tstop,0);
-		    timersub(&tstop, &tstart, &tdiff);
-		    us_write += tdiff.tv_usec;
-		    writes++;	
-#endif
-		    break;
-		case STATE_PAUSED:
-		    pthread_mutex_unlock(&ctx->mutex);
-		    continue;
-		case STATE_STOPPED:
-		    pthread_mutex_unlock(&ctx->mutex);
-#ifdef TEST_TIMING
-		    if(gets && writes) log_info("stream stopped, exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
-#else
-		    log_info("stopped before write");
-#endif
-		    ctx->audio_thread = 0;
-		    return 0;
-		default:
-		    pthread_mutex_unlock(&ctx->mutex);
-		    log_err("cannot happen");	
-		    ctx->audio_thread = 0;
-		    return 0;
-	    }
-	    pthread_mutex_unlock(&ctx->mutex);
-	    if(i <= 0 || k != period_size * f2b) {
-/*
-eof detected, exiting: avg get=529 write=68784  16/44
-exiting: avg get=735 write=68280 
-blocked/total: writes=8/1307 reads=272/1961	
-exiting: avg get=354 write=7423   24/192
-blocked/total: writes=0/9481 reads=3871/28442
-*/
-#ifdef TEST_TIMING
-		if(gets && writes) log_info("eof detected, exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
-#else
-	   	log_info("eof detected, exiting");
-#endif
-		return 0;
-	    }
-	}
-
-	ctx->audio_thread = 0;
-#ifdef TEST_TIMING
-	if(gets && writes) log_info("exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
-#else
-	log_info("exiting");
-#endif
-    return 0;	
+    audio_stop(ctx);	
 }
 
-/* If this function is called on eof from xxx_play (now=0), wait for playback to complete.
-   If it's called from java through audio_init, audio_exit or audio_stop_exp (now=1), stop 
-   the stream and wait for xxx_play to exit (which sets stopped=1). 
-   This should work no matter the order these calls are made. */
+/* If this function is normally called on EOS from playback_complete() 
+   in state == STATE_STOPPED, so we must wait for playback to complete.
+   Otherwise it is called to request immediate stop (from java through 
+   audio_init, audio_exit or audio_stop_exp) */
 
-int audio_stop(playback_ctx *ctx, int now) 
+int audio_stop(playback_ctx *ctx) 
 {
+    enum playback_state in_state;
+
     if(!ctx) {
 	log_err("no context to stop");
 	return -1;
     }	
     pthread_mutex_lock(&ctx->mutex);
 
-    log_info("stopping context %p, state %d, now %d", ctx, ctx->state, now);
-    if(ctx->state == STATE_STOPPED && (now || ctx->stopped)) {
-	log_info("stopped already");
-    	pthread_mutex_unlock(&ctx->mutex);
-	return -1;
-    }
-    if(ctx->state == STATE_PAUSED) {
-    	ctx->state = STATE_STOPPED;	
-	log_info("context was paused");
-	pthread_cond_broadcast(&ctx->cond_resumed);
-	/* need to set controls, close(pcm_fd) blocks for 5s otherwise */
-	alsa_is_offload(ctx) ? alsa_resume_offload(ctx) : alsa_resume(ctx);	
-    } else if(now) ctx->state = STATE_STOPPED;
+    in_state = ctx->state; 	
+    log_info("context %p in state %d", ctx, in_state);
 
-    if(ctx->buff) buffer_stop(ctx->buff, now);
-    
-    if(now) {
-	pthread_mutex_lock(&ctx->stop_mutex);
-	if(ctx->stopped) log_info("audio_play exited already");
-	else {
-	    pthread_mutex_unlock(&ctx->mutex);
-#if 0
-	    if(ctx->audio_thread) {	
-		/* helps with msm hangups */
-		log_info("terminating audio_thread");
-		pthread_kill(ctx->audio_thread, SIGUSR1);
-		log_info("audio_thread terminated");	
-	    }
-#endif
-	    log_info("waiting for audio_play to exit");	
-	    pthread_cond_wait(&ctx->cond_stopped, &ctx->stop_mutex);
-	    log_info("audio_play exited");
-	    pthread_mutex_lock(&ctx->mutex);
+    if(in_state == STATE_STOPPED) {
+	log_info("final cleanup");
+    	if(ctx->buff) {
+	    buffer_stop(ctx->buff, 0);
+	    buffer_destroy(ctx->buff);
+	    ctx->buff = 0;	
 	}
-	pthread_mutex_unlock(&ctx->stop_mutex);
-    } else {
-	pthread_mutex_unlock(&ctx->mutex);
 	if(ctx->audio_thread) {
 	    log_info("waiting for audio_thread");
 	    pthread_join(ctx->audio_thread, 0);
 	    log_info("audio_thread exited");
+	    ctx->audio_thread = 0;	
 	}
     	alsa_stop(ctx);
-	pthread_mutex_lock(&ctx->stop_mutex);
-	log_info("signalling on completion");
-	ctx->stopped = 1;
-	pthread_cond_signal(&ctx->cond_stopped);
-	pthread_mutex_unlock(&ctx->stop_mutex);
-	pthread_mutex_lock(&ctx->mutex);	
+    	ctx->track_time = 0;	
+	pthread_mutex_unlock(&ctx->mutex);
+	log_info("done");
+	return 0;
     }
-    if(ctx->buff) buffer_destroy(ctx->buff);
-    ctx->buff = 0;
-    if(ctx->state != STATE_STOPPED) ctx->state = STATE_STOPPED;	/* normal playback exit */
+    ctx->state = STATE_STOPPING;
+
+    if(in_state == STATE_PAUSED || in_state == STATE_PAUSING) {
+	log_info("context was paused brefore");
+	pthread_cond_broadcast(&ctx->cond_resumed);
+    }	 		
+    if(ctx->buff) buffer_stop(ctx->buff, 1);
+
+//    pthread_mutex_lock(&ctx->stop_mutex);	
+//    pthread_cond_wait(&ctx->cond_stopped, &ctx->stop_mutex);
+//    pthread_mutex_unlock(&ctx->stop_mutex);
 
     pthread_mutex_unlock(&ctx->mutex);
 
-    ctx->track_time = 0;	
-    if(now) log_info("forced stop: exiting");	
     return 0;
 }
+	
 
 /* Stream parameters must be set by decoder before this call */
 int audio_start(playback_ctx *ctx, int buffered_write)
@@ -263,11 +145,12 @@ int audio_start(playback_ctx *ctx, int buffered_write)
 	    return -1;
 	}
 	log_info("starting context %p, state %d", ctx, ctx->state);
+
 	pthread_mutex_lock(&ctx->mutex);
 	if(ctx->state != STATE_STOPPED) {
 	    log_info("context live, stopping");
 	    pthread_mutex_unlock(&ctx->mutex);	
-	    audio_stop(ctx,1); 
+	    audio_stop(ctx); 
 	    pthread_mutex_lock(&ctx->mutex);
 	    log_info("live context stopped");	
 	}
@@ -315,7 +198,6 @@ Linux pc, period size 9648:
     done:
 	ctx->state = STATE_PLAYING;
 	ctx->written = 0;
-	ctx->stopped = 0;
 	ctx->alsa_error = 0;
 	pthread_mutex_unlock(&ctx->mutex);
 	log_info("playback started");
@@ -332,11 +214,12 @@ Linux pc, period size 9648:
 
 int audio_write(playback_ctx *ctx, void *buff, int size) 
 {
-    int i = sync_state(ctx, __func__);	
-
-        if(i < 0) return -1;
-        i = alsa_is_mmapped(ctx) ? alsa_write_mmapped(ctx, buff, size) : buffer_put(ctx->buff, buff, size);
-
+    enum playback_state state;
+    int i;
+	state = sync_state(ctx, __func__);
+	if(state == STATE_STOPPED || state == STATE_STOPPING) return -1;
+        i = alsa_is_mmapped(ctx) ? 
+		alsa_write_mmapped(ctx, buff, size) : buffer_put(ctx->buff, buff, size);
     return (i == size) ? 0 : -1;
 }
 
@@ -347,6 +230,7 @@ jboolean audio_pause(JNIEnv *env, jobject obj, jlong jctx)
 {
     bool ret;
     playback_ctx *ctx = (playback_ctx *) jctx;	
+    volatile enum playback_state saved_state;
     if(!ctx) {
 	log_err("no context to pause");
 	return false;
@@ -357,11 +241,15 @@ jboolean audio_pause(JNIEnv *env, jobject obj, jlong jctx)
 	log_info("not in playing state");
 	return false;
     }	
-    ret = alsa_is_offload(ctx) ? alsa_pause_offload(ctx) : alsa_pause(ctx);
-    if(ret) {	
-	ctx->state = STATE_PAUSED;
-	log_info("paused");
-    } else log_err("alsa pause failed, locking skipped");	
+    log_info("about to pause");	
+    saved_state = ctx->state;	
+    ctx->state = STATE_PAUSING;	
+    pthread_cond_wait(&ctx->cond_paused, &ctx->mutex);	
+    ret = (ctx->state == STATE_PAUSED);
+    if(!ret) {
+	log_err("alsa pause failed");
+	ctx->state = saved_state;	
+    } else log_info("paused");	
     pthread_mutex_unlock(&ctx->mutex);
     return ret;		
 }
@@ -383,20 +271,123 @@ jboolean audio_resume(JNIEnv *env, jobject obj, jlong jctx)
 	log_info("not in paused state");
 	return false;
     } 	
+    log_info("resuming playback");	
     ret = alsa_is_offload(ctx) ? alsa_resume_offload(ctx) : alsa_resume(ctx);	
     if(!ret) log_err("resume failed, proceeding anyway");
     ctx->state = STATE_PLAYING;	
-    pthread_cond_broadcast(&ctx->cond_resumed);
+    pthread_cond_broadcast(&ctx->cond_resumed);	/* wake up writing threads or cycles */
     log_info("resumed");	
     pthread_mutex_unlock(&ctx->mutex);
     return ret;	
+}
+
+
+#if 0
+/* to be removed */
+static void thread_exit(int j) {
+    log_info("signal %d received",j);	
+}
+#endif
+
+#define TEST_TIMING	1
+
+static void *audio_write_thread(void *a) 
+{
+    playback_ctx *ctx = (playback_ctx *) a;
+    int i, k, f2b;
+    const playback_format_t *format = alsa_get_format(ctx);
+    void *pcm_buf = alsa_get_buffer(ctx);
+    int period_size = alsa_get_period_size(ctx);
+#if 0
+    sigset_t set;
+    struct sigaction sact = { .sa_handler = thread_exit,  };
+#endif
+
+#ifdef TEST_TIMING
+    struct timeval tstart, tstop, tdiff;
+    int  writes = 0, gets = 0;
+    unsigned long long us_write = 0, us_get = 0;	
+#endif
+
+	if(!format) {
+	    log_err("cannot determine sample format, exiting");	
+	    return 0;
+	}
+	f2b = ctx->channels * (format->phys_bits/8);
+
+	log_info("entering");
+#if 0
+	sigaction(SIGUSR1, &sact, 0);
+	sigemptyset(&set);
+	sigaddset(&set, SIGUSR1);
+	pthread_sigmask(SIG_UNBLOCK, &set, 0);
+#endif
+
+	while(1) {
+	    k = sync_state(ctx, __func__);
+	    if(k != STATE_PLAYING) {
+		log_err("got state %d, exiting", k);
+		break;
+	    }	
+#ifdef TEST_TIMING
+	    gettimeofday(&tstart,0);
+#endif
+	    pcm_buf = alsa_get_buffer(ctx);	/* may be changed after pause in sync_state! */	
+	    if(!pcm_buf) {
+		log_err("cannot obtain alsa buffer, exiting");	
+		return 0;
+	    }
+
+	    k = buffer_get(ctx->buff, pcm_buf, period_size * f2b);
+
+#ifdef TEST_TIMING
+	    gettimeofday(&tstop,0);
+	    timersub(&tstop, &tstart, &tdiff);
+	    us_get += tdiff.tv_usec;
+	    gets++;	
+#endif
+	    if(k <= 0) {
+		log_info("buffer stopped or empty, exiting");
+		break;
+	    }
+
+#ifdef TEST_TIMING
+	    gettimeofday(&tstart,0);
+#endif
+	    i = alsa_write(ctx, 0, k/f2b);
+#ifdef TEST_TIMING
+	    gettimeofday(&tstop,0);
+	    timersub(&tstop, &tstart, &tdiff);
+	    us_write += tdiff.tv_usec;
+	    writes++;	
+#endif
+	    if(i <= 0 || k != period_size * f2b) {
+/*
+eof detected, exiting: avg get=529 write=68784  16/44
+exiting: avg get=735 write=68280 
+blocked/total: writes=8/1307 reads=272/1961	
+exiting: avg get=354 write=7423   24/192
+blocked/total: writes=0/9481 reads=3871/28442
+*/
+	   	log_info("eof detected, exiting");
+		break;
+	    }
+	}
+	ctx->audio_thread = 0;
+#ifdef TEST_TIMING
+	if(gets && writes) log_info("exiting: avg get=%lld write=%lld", us_get/gets, us_write/writes);
+#else
+	log_info("exiting");
+#endif
+    return 0;	
 }
 
 #ifdef ANDROID
 static jint audio_get_duration(JNIEnv *env, jobject obj, jlong jctx) 
 {
    playback_ctx *ctx = (playback_ctx *) jctx;	
-   if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;	
+   if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED 
+	&& ctx->state != STATE_PAUSING)) return 0;	
    return ctx->track_time;
 }
 
@@ -404,7 +395,8 @@ static jint audio_get_duration(JNIEnv *env, jobject obj, jlong jctx)
 static jint audio_get_cur_position(JNIEnv *env, jobject obj, jlong jctx) 
 {
    playback_ctx *ctx = (playback_ctx *) jctx;
-   if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
+   if(!ctx) return 0;
+//   if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
    return alsa_is_offload(ctx) ? alsa_time_pos_offload(ctx) : ctx->written/ctx->samplerate;
 }
 
@@ -426,7 +418,7 @@ jlong audio_init(JNIEnv *env, jobject obj, jlong jctx, jint card, jint device)
     playback_ctx *prev_ctx = (playback_ctx *) jctx;	
     log_info("audio_init: prev_ctx=%p, device=hw:%d,%d", prev_ctx, card, device);
     if(prev_ctx) {
-	audio_stop(prev_ctx, 1);
+	audio_stop(prev_ctx);
 	if(alsa_select_device(prev_ctx, card, device) != 0) { 
 	    return 0;
 	}
@@ -448,6 +440,7 @@ jlong audio_init(JNIEnv *env, jobject obj, jlong jctx, jint card, jint device)
 	pthread_mutex_init(&ctx->mutex,0);
 	pthread_mutex_init(&ctx->stop_mutex,0);
 	pthread_cond_init(&ctx->cond_stopped,0);
+	pthread_cond_init(&ctx->cond_paused,0);
 	pthread_cond_init(&ctx->cond_resumed,0);
     }
     ctx->state = STATE_STOPPED;
@@ -467,14 +460,14 @@ jboolean audio_exit(JNIEnv *env, jobject obj, jlong jctx)
 	return false;
     }	
     log_info("audio_exit: ctx=%p",ctx);
-    audio_stop(ctx, 1);
-    if(!ctx->stopped) alsa_stop(ctx); /* just to set stop mixer controls in case it wasn't playing  */	
+    audio_stop(ctx);
     alsa_exit(ctx);
     alsa_free_mixer_controls(ctx);
     if(ctx->xml_mixp) xml_mixp_close(ctx->xml_mixp);
     pthread_mutex_destroy(&ctx->mutex);
     pthread_mutex_destroy(&ctx->stop_mutex);
     pthread_cond_destroy(&ctx->cond_stopped);	
+    pthread_cond_destroy(&ctx->cond_paused);	
     pthread_cond_destroy(&ctx->cond_resumed);	
     free(ctx);	
     return true;
@@ -540,8 +533,7 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfil
 	if(ret) log_err("exiting on error %d", ret);
 	else log_info("Playback complete.");
 
-	return ret;
-
+    return ret;
 }
 
 ////////////////////////////////////////////////
@@ -625,7 +617,7 @@ void update_track_time(JNIEnv *env, jobject obj, int time)
 static jboolean audio_stop_exp(JNIEnv *env, jobject obj, jlong jctx) 
 {
     playback_ctx *ctx = (playback_ctx *) jctx;	
-    return (audio_stop(ctx, 1) == 0);    	
+    return (audio_stop(ctx) == 0);    	
 }
 
 static jint audio_play_exp(JNIEnv *env, jobject obj, jlong jctx, jstring jfile, jint format, jint start) 

@@ -53,12 +53,17 @@ struct pcm_buffer_t;
 #define FORMAT_APE	2
 #define FORMAT_MP3	3	/* offload playback only */
 
+
+enum playback_state {
+    STATE_STOPPED = 0,	/* init state */
+    STATE_PLAYING,
+    STATE_PAUSED,
+    STATE_STOPPING,
+    STATE_PAUSING 	
+};
+ 
 typedef struct {
-   enum _playback_state_t {
-	STATE_STOPPED = 0,	/* init state */
-	STATE_PLAYING,
-	STATE_PAUSED
-   } state;
+   volatile enum playback_state state;
    int  track_time;			/* set by decoder */
    int  file_format;			/* FORMAT_* above, set on entry to audio_play */
    int  channels, bps;			/* set by decoder */
@@ -72,9 +77,9 @@ typedef struct {
    void *ctls;				/* cached mixer controls for current card */
    pthread_mutex_t mutex, stop_mutex;
    pthread_t audio_thread;
-   pthread_cond_t cond_stopped;		/* audio_play() is about to exit */
-   int  stopped; 			/* associated variable */
-   pthread_cond_t cond_resumed;		/* thread will pause waiting for state change */
+   pthread_cond_t cond_stopped;
+   pthread_cond_t cond_resumed;
+   pthread_cond_t cond_paused;
    struct pcm_buffer_t *buff; 
    void *alsa_priv;
    int  alsa_error;			/* set on error exit from alsa thread  */
@@ -82,11 +87,11 @@ typedef struct {
 
 /* main.c */
 extern int audio_start(playback_ctx *ctx, int buffered_write);
-extern int audio_stop(playback_ctx *ctx, int abort);
+extern int audio_stop(playback_ctx *ctx);
 extern int audio_write(playback_ctx *ctx, void *buff, int size);
 extern int check_state(playback_ctx *ctx, const char *func);
 extern void update_track_time(JNIEnv *env, jobject obj, int time);
-extern int sync_state(playback_ctx *ctx, const char *func);
+extern enum playback_state  sync_state(playback_ctx *ctx, const char *func);
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start);
 #ifndef ANDROID
 extern jlong audio_init(JNIEnv *env, jobject obj, jlong prev_ctx, jint card, jint device);
@@ -94,6 +99,8 @@ extern jboolean audio_exit(JNIEnv *env, jobject obj, jlong ctx);
 extern jboolean audio_pause(JNIEnv *env, jobject obj, jlong ctx);
 extern jboolean audio_resume(JNIEnv *env, jobject obj, jlong ctx);
 #endif
+extern void playback_complete(playback_ctx *ctx, const char *func);
+
 
 /* alsa.c */
 extern int alsa_select_device(playback_ctx *ctx, int card, int device);

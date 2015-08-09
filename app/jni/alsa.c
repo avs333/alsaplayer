@@ -194,27 +194,6 @@ static inline char *cat_str(char *dest, const char *src)
 	}
 }
 
-static inline int sync_ptr(alsa_priv *priv, int flags)
-{ 
-    if(!priv || !priv->sync_ptr) {
-	log_err("invalid arguments");
-	return -1;
-    }		
-    priv->sync_ptr->flags = flags;
-    return ioctl(priv->fd, SNDRV_PCM_IOCTL_SYNC_PTR, priv->sync_ptr);		
-}
-
-static inline int get_avail(alsa_priv *priv)
-{
-    int avail;
-	if(sync_ptr(priv, SNDRV_PCM_SYNC_PTR_HWSYNC) != 0) return -1;
-	avail = priv->sync_ptr->s.status.hw_ptr + priv->buffer_size - priv->sync_ptr->c.control.appl_ptr;
-	if(avail < 0) avail += priv->boundary;
-	else if(avail > (int) priv->boundary) avail -= priv->boundary;
-    return avail;
-}
-
-
 #define CODEC_MAX	31	/* to fit in one word */
 static const char *compr_codecs[CODEC_MAX+1] = {
    [0x1] = "SND_AUDIOCODEC_PCM", [0x2] = "SND_AUDIOCODEC_MP3", [0x3] = "SND_AUDIOCODEC_AMR",	
@@ -312,6 +291,10 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    priv->is_mmapped = xml_dev_is_mmapped(xml_dev);	
 	    log_info("loaded settings for card %d device %d [offload=%d mmap=%d]", card, device, 
 		priv->is_offload, priv->is_mmapped);
+	    if(priv->is_offload && priv->is_mmapped) {
+		log_info("mmapped offload playback not supported yet, switching to mmaped=0");
+		priv->is_mmapped = 0;
+	    }	
 	    if(ctx->xml_mixp && xml_dev_is_builtin(xml_dev)) {
 		priv->nv_start = xml_mixp_find_control_set(ctx->xml_mixp, "headphones");
 		if(!priv->nv_start) {
@@ -634,7 +617,6 @@ int alsa_start(playback_ctx *ctx)
 	    }
 	    priv->boundary = priv->buffer_size;		/* to match kernel code */
 	    while(priv->boundary * 2 <= INT_MAX - priv->buffer_size) priv->boundary *= 2;
-	    	
 	} else {	
 	    priv->buf = malloc(priv->buf_bytes);
 	    if(!priv->buf) {
@@ -713,13 +695,35 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 		ret = LIBLOSSLESS_ERR_NOMEM;
 		goto err_exit;
 	    }	
-
 	    memset(priv->buf, 0, priv->buf_bytes);
-	//  priv->sync_ptr->c.control.avail_min = 1;
+
+	    /* set avail_min to chunk size and appl_ptr to the end of silence buffer */	
 	    priv->sync_ptr->c.control.avail_min = priv->chunk_size;
 	    priv->sync_ptr->c.control.appl_ptr = priv->chunk_size;
-	    		
-	    sync_ptr(priv, 0); 	    			
+	    priv->sync_ptr->flags = 0;
+	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_SYNC_PTR, priv->sync_ptr) < 0) {
+		log_info("sync_ptr ioctl (put) failed, exiting");
+		ret = LIBLOSSLESS_ERR_AU_SETUP;
+		goto err_exit;	
+	    }
+	    /* initial driver status after preparing */	
+	    priv->sync_ptr->flags = SNDRV_PCM_SYNC_PTR_APPL | SNDRV_PCM_SYNC_PTR_AVAIL_MIN;	
+	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_SYNC_PTR, priv->sync_ptr) < 0) {
+		log_info("sync_ptr ioctl (get) failed, exiting");
+		ret = LIBLOSSLESS_ERR_AU_SETUP;
+		goto err_exit;	
+	    }
+	    log_info("starting: state %d hw_ptr %ld appl_ptr %ld avail_min %ld buff_sz %d chunk_sz %d boundary %x",
+		priv->sync_ptr->s.status.state, 
+		priv->sync_ptr->s.status.hw_ptr, priv->sync_ptr->c.control.appl_ptr,
+		priv->sync_ptr->c.control.avail_min, priv->buffer_size, priv->chunk_size, priv->boundary);
+	    {
+		struct snd_pcm_channel_info info;
+		    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_CHANNEL_INFO, &info) == 0) 
+			log_info("channel %d offset %ld first %d step %d", info.channel, info.offset, info.first, info.step);
+		    else log_info("no channel info available");			     	
+			
+	    } 		
 	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_START) < 0) {
 		log_info("start() failed, exiting");
 		ret = LIBLOSSLESS_ERR_AU_SETUP;
@@ -732,7 +736,6 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 	return 0;
 
     err_exit:	
-	ctx->stopped = 1;
 	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
 	if(priv->buf) {
 	    if(priv->is_mmapped) munmap(priv->buf, priv->buf_bytes);
@@ -781,7 +784,6 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 	    memset(priv->buf + count * ctx->channels * priv->format->phys_bits/8, 0, 
 			(priv->chunk_size - count) * ctx->channels * priv->format->phys_bits/8);
 	}	
-
 
 	while(written < priv->chunk_size) {
 #if 1
@@ -835,38 +837,63 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 }
 
 
+/*   SNDRV_PCM_IOCTL_SYNC_PTR ioctl works as follows:
+     If flags & SNDRV_PCM_SYNC_PTR_APPL -> +get+ appl_ptr, else +put+ appl_ptr
+     If flags & SNDRV_PCM_SYNC_PTR_AVAIL_MIN -> +get+ avail_min, else +put+ avail_min
+     If flags & SNDRV_PCM_SYNC_PTR_HWSYNC -> snd_pcm_hwsync(substream)	
+*/	
+
+static inline int get_avail(alsa_priv *priv)
+{
+    int avail;
+	priv->sync_ptr->flags = SNDRV_PCM_SYNC_PTR_HWSYNC;
+	if(ioctl(priv->fd, SNDRV_PCM_IOCTL_SYNC_PTR, priv->sync_ptr) != 0) return -1;
+	avail = priv->sync_ptr->s.status.hw_ptr + priv->buffer_size - priv->sync_ptr->c.control.appl_ptr;
+	if(avail < 0) avail += priv->boundary;
+	else if(avail > (int) priv->boundary) avail -= priv->boundary;
+#ifdef EXTRA_VERBOSE
+	log_info("hw_ptr=%ld, appl_ptr=%ld, avail=%d in chunk %ld",
+		priv->sync_ptr->s.status.hw_ptr, priv->sync_ptr->c.control.appl_ptr, avail, 
+		(priv->sync_ptr->c.control.appl_ptr % priv->buffer_size)/priv->chunk_size);
+#endif
+    return avail;
+}
+
 ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count) 
 {
     int avail, ret;
     alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;	
     struct pollfd fds;
-    unsigned int pcm_offset, appl_ptr;
+    unsigned int pcm_offset;
     size_t written = 0, to_write;
     int f2b = ctx->channels * priv->format->phys_bits/8;	    
 
-//  log_info("writing %ld", count);			
-	
+#ifdef EXTRA_VERBOSE
+    log_info("writing %d from %p priv=%p", (int) count, buf, priv->buf);
+#endif
     while(written != count) {	
 	to_write = count - written;
-    	if(to_write > priv->chunk_size) to_write = priv->chunk_size;
+//    	if(to_write > priv->chunk_size) to_write = priv->chunk_size;
+    	if(to_write > priv->buffer_size) to_write = priv->buffer_size;
 	avail = get_avail(priv);	
 	if(avail < 0) {
 	    log_err("get_avail() returned %d", avail);	
 	    return 0;
 	}
-//	log_info("avail = %d", avail);
 	while(avail < to_write) {	/* we want at least one chunk */
-//	    log_info("poll: avail %d to_write %ld", avail, to_write);
+#ifdef EXTRA_VERBOSE 
+	    log_info("poll: avail %d to_write %d", avail, (int)to_write);
+#endif
 	    fds.fd = priv->fd;
 	    fds.events = POLLOUT | POLLERR | POLLNVAL;
 	    errno = 0;
 	    ret = poll(&fds, 1, -1);
 	    if(ret < 0 || (fds.revents & (POLLERR | POLLNVAL))) {
 		if(errno == EINTR) continue;
-                log_err("poll returned error: %s", strerror(errno));
-                return -1;
+                if(errno) log_err("poll returned error: %s", strerror(errno));
+                return 0;
             } else if(ret == 0)	{
-		log_err("timeout in poll()");
+		log_err("not ready condition in poll()");
 		return 0;
 	    }	
 	    avail = get_avail(priv);	
@@ -880,19 +907,24 @@ ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count)
 	/* continuous frames available */
 	avail = priv->buffer_size - pcm_offset;
 	if(to_write > avail) to_write = avail;
-//	log_info("cont avail = %d, %ld to write @ %ld [%d] st=%d", 
-//		avail, to_write, priv->sync_ptr->c.control.appl_ptr, pcm_offset, priv->sync_ptr->s.status.state);
+#ifdef EXTRA_VERBOSE
+	log_info("continuous avail %d", avail);
+#endif
 	memcpy(priv->buf + pcm_offset * f2b, buf + written * f2b, to_write * f2b);
 
 	/* update pointers */	
-	appl_ptr = priv->sync_ptr->c.control.appl_ptr + to_write;
-        if(appl_ptr > priv->boundary) appl_ptr -= priv->boundary;
-	sync_ptr(priv, 0);
+	priv->sync_ptr->c.control.appl_ptr += to_write;
+        if(priv->sync_ptr->c.control.appl_ptr > priv->boundary) 
+		priv->sync_ptr->c.control.appl_ptr -= priv->boundary;
 
-        priv->sync_ptr->c.control.appl_ptr = appl_ptr;
+	priv->sync_ptr->flags = 0;
+	if(ioctl(priv->fd, SNDRV_PCM_IOCTL_SYNC_PTR, priv->sync_ptr) < 0) {
+	    log_err("sync_ptr ioctl failed, exiting");
+	    return 0;
+	}
 	written += to_write;
-//	log_info("%ld written", written);
-    }	
+    }
+    ctx->written += count;	
     return count;	
 }
 
@@ -944,26 +976,10 @@ void alsa_stop(playback_ctx *ctx)
 	    return;	
 	}
 	log_info("closing audio stream");	
-#if 0
-	if(!ctx || !ctx->alsa_priv) return;
-	priv = (alsa_priv *) ctx->alsa_priv;
-	if(priv->fd >= 0) {
-	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_DRAIN) == 0) log_info("pcm_drain: success");	
-	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_DROP) == 0) log_info("pcm_drop: success");	
-	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_RESET) == 0) log_info("pcm_reset: success");	
-	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_XRUN) == 0) log_info("pcm_xrun: success");	
-	    { 
-		int flags;
-		    if((flags = fcntl(priv->fd, F_GETFL)) != -1) {
-			flags |= O_NONBLOCK;
-			fcntl(priv->fd, F_SETFL, flags);
-		    }
-	    }		
-	}
-#endif
+	if(priv->fd >= 0) ioctl(priv->fd, SNDRV_PCM_IOCTL_DRAIN);
 	alsa_close(ctx);
 	log_info("audio stream closed");
-	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);	
+	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
 }
 
 bool alsa_pause(playback_ctx *ctx) 

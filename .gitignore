@@ -13,4 +13,5 @@ gradle.properties
 /libsuperuser/build
 /app/jni/alsaplayer
 /app/jni/logs
+.gdb_history
 

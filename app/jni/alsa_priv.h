@@ -26,13 +26,13 @@ typedef struct _alsa_priv {
     int  chunks;				/* periods and period_size in frames for pcm playback, OR */
     int  chunk_size;				/* fragments and fragment_size in bytes for offload playback*/
     unsigned int  buffer_size;			/* chunk_size * chunks: for mmapped only */
-    unsigned int  boundary;			/* for mmapped only */
+    int  boundary;				/* for mmapped only */
     int  fd;					/* alsa device */
     struct snd_pcm_sync_ptr *sync_ptr;		/* for mmapped playback only */
     void *buf;					/* internal buffer for a single chunk OR complete mmapped buffer  */
     int  buf_bytes;				/* its size */
     int  cur_fmt;				/* index into nv_fmt[], for speedup */
-    int  vol_analog[MAX_FMTS];			/* current analog/digital volumes; these are */	
+    int  vol_analog[MAX_FMTS];			/* current analog/digital volumes; these are set */	
     int  vol_digital[MAX_FMTS];			/* to defaults when the device is switched */
 } alsa_priv;
 

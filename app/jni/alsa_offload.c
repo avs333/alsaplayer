@@ -110,7 +110,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	if(ctx->state != STATE_STOPPED) {
 	    log_info("context live, stopping");
 	    pthread_mutex_unlock(&ctx->mutex);  
-	    audio_stop(ctx,1); 
+	    audio_stop(ctx); 
 	    pthread_mutex_lock(&ctx->mutex);
 	    log_info("live context stopped");   
 	}
@@ -234,17 +234,11 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	}
 	log_info("playback started");
 	ctx->state = STATE_PLAYING;
-        ctx->stopped = 0;
         ctx->alsa_error = 0;
 	ctx->audio_thread = 0;
 	pthread_mutex_unlock(&ctx->mutex);
 
 	while(mptr < mend) {
-	    k = sync_state(ctx, __func__);		/* will block while we're paused */
-	    if(k < 0)  {
-		log_info("gather I should stop");	/* or return negative if we're stopped. */
-		break;				
-	    }	
 	    k = (mend - mptr < read_size) ? mend - mptr : read_size;
 	    if(k < read_size && cur_map_off + cur_map_len != flen) {        /* too close to end of mapped region, but not at eof */
 		log_info("remapping");  
@@ -263,6 +257,10 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		k = (mend - mptr < read_size) ? mend - mptr : read_size;        
 		log_info("remapped");
 	    }
+	    if(sync_state(ctx, __func__) != STATE_PLAYING)  {
+		log_info("gather I should stop");
+		break;				
+	    }	
 	    if(write_buff) {
 		convert24_3le_le(mptr, write_buff, k);
 		write_size = (4 * k)/3;
@@ -284,13 +282,14 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    log_info("draining");
 	    if((*compr_drain)(priv->fd) != 0) log_info("drain failed");
 	}
+
 	gettimeofday(&tstop,0);
 	timersub(&tstop, &tstart, &tdiff);
-	log_info("playback complete in %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
+	log_info("playback time %ld.%03ld sec", tdiff.tv_sec, tdiff.tv_usec/1000);	
 	close(fd);
-	audio_stop(ctx, 0);
 	munmap(mm, cur_map_len);
 	if(write_buff) free(write_buff);
+	playback_complete(ctx, __func__);
 	return 0;
 
     err_exit:
@@ -298,8 +297,8 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
     err_exit_unlocked:
 	close(fd);
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
-	if(ctx->state != STATE_STOPPED) audio_stop(ctx, 0);
 	if(write_buff) free(write_buff);
+	playback_complete(ctx, __func__);
     return ret;	
 } 
 
