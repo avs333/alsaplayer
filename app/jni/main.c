@@ -67,19 +67,14 @@ enum playback_state sync_state(playback_ctx *ctx, const char *func) {
 void playback_complete(playback_ctx *ctx, const char *func)
 {
     pthread_mutex_lock(&ctx->mutex);
-    ctx->state = STATE_STOPPED;	
+    ctx->state = STATE_STOPPING;	
     log_info("playback complete in %s", func);
     pthread_mutex_unlock(&ctx->mutex);
-
-    pthread_mutex_lock(&ctx->stop_mutex);
-    pthread_cond_signal(&ctx->cond_stopped);	
-    pthread_mutex_unlock(&ctx->stop_mutex);
-
     audio_stop(ctx);	
 }
 
 /* If this function is normally called on EOS from playback_complete() 
-   in state == STATE_STOPPED, so we must wait for playback to complete.
+   in state == STATE_STOPPING, so we must wait for playback to complete.
    Otherwise it is called to request immediate stop (from java through 
    audio_init, audio_exit or audio_stop_exp) */
 
@@ -97,24 +92,29 @@ int audio_stop(playback_ctx *ctx)
     log_info("context %p in state %d", ctx, in_state);
 
     if(in_state == STATE_STOPPED) {
-	log_info("final cleanup");
-    	if(ctx->buff) {
-	    buffer_stop(ctx->buff, 0);
-	    buffer_destroy(ctx->buff);
-	    ctx->buff = 0;	
-	}
+	log_err("stopped already");
+	pthread_mutex_unlock(&ctx->mutex);
+	return 0;
+    }		
+    if(in_state == STATE_STOPPING) {
+    	if(ctx->buff) buffer_stop(ctx->buff, 0);
+	pthread_mutex_unlock(&ctx->mutex);
 	if(ctx->audio_thread) {
-	    log_info("waiting for audio_thread");
 	    pthread_join(ctx->audio_thread, 0);
-	    log_info("audio_thread exited");
 	    ctx->audio_thread = 0;	
 	}
     	alsa_stop(ctx);
+	if(ctx->buff) {
+	    buffer_destroy(ctx->buff);
+	    ctx->buff = 0;
+	}	
+	ctx->state = STATE_STOPPED;
     	ctx->track_time = 0;	
-	pthread_mutex_unlock(&ctx->mutex);
-	log_info("done");
+	pthread_cond_broadcast(&ctx->cond_stopped);
+	log_info("stopped");
 	return 0;
     }
+    log_info("forced stop");	
     ctx->state = STATE_STOPPING;
 
     if(in_state == STATE_PAUSED || in_state == STATE_PAUSING) {
@@ -150,8 +150,9 @@ int audio_start(playback_ctx *ctx, int buffered_write)
 	if(ctx->state != STATE_STOPPED) {
 	    log_info("context live, stopping");
 	    pthread_mutex_unlock(&ctx->mutex);	
-	    audio_stop(ctx); 
+	    ret = audio_stop(ctx); 
 	    pthread_mutex_lock(&ctx->mutex);
+	    if(ret < 0)	return ret;
 	    log_info("live context stopped");	
 	}
 
@@ -217,7 +218,7 @@ int audio_write(playback_ctx *ctx, void *buff, int size)
     enum playback_state state;
     int i;
 	state = sync_state(ctx, __func__);
-	if(state == STATE_STOPPED || state == STATE_STOPPING) return -1;
+	if(state == STATE_STOPPED) return -1;
         i = alsa_is_mmapped(ctx) ? 
 		alsa_write_mmapped(ctx, buff, size) : buffer_put(ctx->buff, buff, size);
     return (i == size) ? 0 : -1;
@@ -325,7 +326,7 @@ static void *audio_write_thread(void *a)
 
 	while(1) {
 	    k = sync_state(ctx, __func__);
-	    if(k != STATE_PLAYING) {
+	    if(k != STATE_PLAYING && k != STATE_STOPPING) {
 		log_err("got state %d, exiting", k);
 		break;
 	    }	

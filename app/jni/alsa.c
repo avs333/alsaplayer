@@ -762,7 +762,7 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
     struct snd_xferi xf;
     struct snd_pcm_status pcm_stat;
 
-	if(!ctx || !ctx->alsa_priv || ctx->state != STATE_PLAYING) {
+	if(!ctx || !ctx->alsa_priv || (ctx->state != STATE_PLAYING && ctx->state != STATE_STOPPING)) {
 	    log_err("stream must be closed or paused");	
 	    return 0;
 	}
@@ -872,9 +872,11 @@ ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count)
     log_info("writing %d from %p priv=%p", (int) count, buf, priv->buf);
 #endif
     while(written != count) {	
+
 	to_write = count - written;
 //    	if(to_write > priv->chunk_size) to_write = priv->chunk_size;
     	if(to_write > priv->buffer_size) to_write = priv->buffer_size;
+	    
 	avail = get_avail(priv);	
 	if(avail < 0) {
 	    log_err("get_avail() returned %d", avail);	
@@ -911,6 +913,10 @@ ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count)
 	log_info("continuous avail %d", avail);
 #endif
 	memcpy(priv->buf + pcm_offset * f2b, buf + written * f2b, to_write * f2b);
+	if(ctx->state == STATE_STOPPING) {  /* dunno why it's needed with alsa */
+	     memset(priv->buf + (priv->buffer_size - to_write + pcm_offset)*f2b, 0, 
+		priv->buffer_size - to_write); 
+	}
 
 	/* update pointers */	
 	priv->sync_ptr->c.control.appl_ptr += to_write;

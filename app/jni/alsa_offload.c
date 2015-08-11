@@ -45,10 +45,10 @@ static ssize_t write_offload(playback_ctx *ctx, void *buf, size_t count)
 	    }
 	    if(avail >= count) break;
 	    fds.fd = priv->fd;
-	    fds.events = POLLOUT;
+	    fds.events = POLLOUT | POLLERR | POLLNVAL;
 	    ret = poll(&fds, 1, MAX_POLL_WAIT_MS);
 	    if(ret == 0 || (ret < 0 && errno == EBADFD)) return 0;	/* we're paused */
-	    if(ret < 0 || (fds.revents & POLLERR)) {
+	    if(ret < 0 || (fds.revents & (POLLERR | POLLNVAL))) {
 		log_err("poll returned error: %s", strerror(errno));
 		return -1;
 	    }
@@ -105,7 +105,8 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
     void *write_buff = 0;
     struct timeval tstart, tstop, tdiff;
     int min_fragments, max_fragments, min_fragment_size, max_fragment_size;
- 	
+    enum playback_state state;
+    	
 	pthread_mutex_lock(&ctx->mutex);
 	if(ctx->state != STATE_STOPPED) {
 	    log_info("context live, stopping");
@@ -257,7 +258,9 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		k = (mend - mptr < read_size) ? mend - mptr : read_size;        
 		log_info("remapped");
 	    }
-	    if(sync_state(ctx, __func__) != STATE_PLAYING)  {
+	do_it_again:
+	    state = sync_state(ctx, __func__);	
+	    if(state != STATE_PLAYING && state != STATE_STOPPING)  {
 		log_info("gather I should stop");
 		break;				
 	    }	
@@ -269,7 +272,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 		write_size = k;
 		ret = write_offload(ctx, mptr, k);
 	    }		
-	    if(ret == 0) continue;	/* we're in PAUSE state; should block in sync_state() now. */
+	    if(ret == 0) goto do_it_again;	/* we're in PAUSE state; should block in sync_state() now. */
 	    if(ret != write_size) {
 		log_err("write error: ret=%d, errno=%d %s", ret, errno, strerror(errno));
 		ret = LIBLOSSLESS_ERR_IO_WRITE;

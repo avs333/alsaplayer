@@ -595,6 +595,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 	     i = audio_write(ctx, pcmbuf, bsz);
 	     if(i < 0) {
 		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
+		log_info("exiting, alsa_error=%d", ctx->alsa_error);
 		break;
 	    }
 

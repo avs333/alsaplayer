@@ -392,6 +392,7 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 
             switch(sync_state(ctx, __func__)) {
                 case STATE_PLAYING:		
+                case STATE_STOPPING:
 		    if(alsa_is_mmapped(ctx)) {
 			if(own_buf) k = alsa_write_mmapped(ctx, pcmbuf, i/b2f);
 			else k = alsa_write_mmapped(ctx, mptr, i/b2f);
@@ -401,8 +402,7 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		 	else k = alsa_write(ctx, mptr, i/b2f); 
 		    }
                     break;
-                case STATE_STOPPING:
-                case STATE_STOPPED:
+		case STATE_STOPPED:
                     log_info("stopped before write");
 		    goto done;
                 default:
