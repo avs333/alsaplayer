@@ -80,6 +80,11 @@ public class Preferences extends PreferenceActivity {
         hs_insert_mode.setKey("hs_insert_mode");
         launchPrefCat.addPreference(hs_insert_mode);
 
+        CheckBoxPreference codec_perf_mode = new CheckBoxPreference(this);
+        codec_perf_mode.setTitle(R.string.strPerfMode);
+        codec_perf_mode.setKey("codec_perf_mode");
+        launchPrefCat.addPreference(codec_perf_mode);
+
 	/* ************************* */
 
 	ArrayList<String> ents = new ArrayList<String>();
@@ -126,6 +131,7 @@ public class Preferences extends PreferenceActivity {
         });
 	info.setTitle(R.string.strDeviceInfo);
 	devsCat.addPreference(info);
+
 
 	/* ************************* */
         

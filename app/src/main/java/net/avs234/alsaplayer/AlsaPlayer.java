@@ -103,6 +103,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	private void log_err(String msg) {
     		Log.e(getClass().getSimpleName(), msg);
     	}
+
 	
     	// UI elements defined in layout xml file.
     	private LinearLayout layout_background;
@@ -148,6 +149,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 				conn = new_connection();
 				Intent intie = new Intent();
 				intie.setClassName("net.avs234.alsaplayer", "net.avs234.alsaplayer.AlsaPlayerSrv");
+				intie.putExtra("codec_perf_mode", prefs.codec_perf_mode);
                 if(!stopService(intie)) log_err("service not stopped");
                 if(startService(intie)== null) log_msg("service not started");
                 else log_msg("started service");
@@ -1049,6 +1051,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 
             Intent intie = new Intent();
             intie.setClassName("net.avs234.alsaplayer", "net.avs234.alsaplayer.AlsaPlayerSrv");
+	    intie.putExtra("codec_perf_mode", prefs.codec_perf_mode);
             
             if(startService(intie)== null) log_msg("service not started");
             else log_msg("started service");
@@ -1109,9 +1112,10 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         	public int last_played_pos;
         	public int last_played_time;
 		public int card, device;
+		public boolean codec_perf_mode;
         	public void load() {
        // 		SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
-                	shuffle = shpr.getBoolean("shuffle", false);		
+                	shuffle = shpr.getBoolean("shuffle_mode", false);		
 	                savebooks = shpr.getBoolean("save_books", false);
 	                last_path = shpr.getString("last_path", null);
 	                last_played_file = shpr.getString("last_played_file", null);
@@ -1119,6 +1123,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	                last_played_time = shpr.getInt("last_played_time",0);
 	                plist_path = shpr.getString("plist_path", Environment.getExternalStorageDirectory().toString());
 	                plist_name = shpr.getString("plist_name", "Favorites");
+			codec_perf_mode = shpr.getBoolean("codec_perf_mode", false);
 	                headset_mode = 0;
 	                if(shpr.getBoolean("hs_remove_mode", false)) headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_REMOVE;
 	                if(shpr.getBoolean("hs_insert_mode", false)) headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_INSERT;
@@ -1128,8 +1133,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         	public void save() {
         //	  	SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
         	  	SharedPreferences.Editor editor = shpr.edit();
-        	  	editor.putBoolean("shuffle", shuffle);
+        	  	editor.putBoolean("shuffle_mode", shuffle);
         	  	editor.putBoolean("save_books", savebooks);
+   		/*	editor.putBoolean("codec_perf_mode", codec_perf_mode); */
         	  	editor.putBoolean("hs_remove_mode", (headset_mode & AlsaPlayerSrv.HANDLE_HEADSET_REMOVE) != 0);
         	  	editor.putBoolean("hs_insert_mode", (headset_mode & AlsaPlayerSrv.HANDLE_HEADSET_INSERT) != 0);
 			editor.putString("device", String.format("%02d-%02d", card, device));

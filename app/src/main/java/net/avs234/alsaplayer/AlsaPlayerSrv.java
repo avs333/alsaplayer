@@ -736,25 +736,49 @@ public class AlsaPlayerSrv extends Service {
 	        	stopSelf();
 	        }
 		AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
-		File f = new File("/dev/snd/controlC0");
-		if(!f.canRead() || !f.canWrite()) AlsaPlayerSrv.setPermissions();
 	}
 
-	public static boolean setPermissions() {
+	@Override
+	public int onStartCommand(Intent intent, int flags, int startId) {
+	    boolean perf_mode = intent.getBooleanExtra("codec_perf_mode", false);
+	    log_msg("onStartCommand called with perf_mode = " + perf_mode);
+	    setPermissions(perf_mode); 	
+	    // We want this service to continue running until it is explicitly
+	    // stopped, so return sticky.
+	    return START_STICKY;
+	}
+
+	public static boolean setPermissions(boolean perf_mode) {
 	    boolean result = false;
 	    java.lang.Process process = null;
 	    DataOutputStream os = null;
-	    BufferedReader is;
-		log_msg("trying to change permissions and set selinux to permissive mode");
+	    File f = new File("/dev/snd/controlC0");
+	    File g = null;
+		if(perf_mode) {
+		    g = new File("/sys/module/snd_soc_wcd9330/parameters/high_perf_mode");
+		    if(!g.exists()) {
+		    	g = new File("/sys/module/snd_soc_wcd9320/parameters/high_perf_mode");
+			if(!g.exists()) g = null;
+		    }
+		}	 	
 	        try {
         	    process = new ProcessBuilder("su").redirectErrorStream(true).start();
 	            os = new DataOutputStream(process.getOutputStream());
-	            os.writeBytes("chmod 0666 /dev/snd/*\n");
-	            os.flush();
+		    log_msg("setting selinux to permissive mode");	
 	            os.write(("setenforce 0\n").getBytes());
 	            os.flush();
 	            os.write(("toolbox setenforce 0\n").getBytes());
 	            os.flush();
+		    if(!f.canRead() || !f.canWrite()) {
+			log_msg("setting /dev/snd permissions");	
+		        os.writeBytes("chmod 0666 /dev/snd/*\n");
+		        os.flush();
+		    } else log_msg("/dev/snd permissions need not be set");	
+		    if(g != null) {
+			log_msg("setting module param for " + g.toString());
+			os.writeBytes("echo 1 > " + g.toString() + "\n");
+			os.flush();
+		    } else log_msg("no perf_mode module param to set");		
 	            os.writeBytes("exit\n");
 	            os.flush();
 	            process.waitFor();
