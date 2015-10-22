@@ -65,10 +65,10 @@ public class Preferences extends PreferenceActivity {
         shuffle_mode.setKey("shuffle_mode");
         launchPrefCat.addPreference(shuffle_mode);
         
-        CheckBoxPreference book_mode = new CheckBoxPreference(this);
-        book_mode.setTitle(R.string.strSaveBooks);
-        book_mode.setKey("book_mode");
-        launchPrefCat.addPreference(book_mode);
+        CheckBoxPreference save_books = new CheckBoxPreference(this);
+        save_books.setTitle(R.string.strSaveBooks);
+        save_books.setKey("save_books");
+        launchPrefCat.addPreference(save_books);
 
         CheckBoxPreference hs_remove_mode = new CheckBoxPreference(this);
         hs_remove_mode.setTitle(R.string.strHsRemove);
@@ -80,10 +80,6 @@ public class Preferences extends PreferenceActivity {
         hs_insert_mode.setKey("hs_insert_mode");
         launchPrefCat.addPreference(hs_insert_mode);
 
-        CheckBoxPreference codec_perf_mode = new CheckBoxPreference(this);
-        codec_perf_mode.setTitle(R.string.strPerfMode);
-        codec_perf_mode.setKey("codec_perf_mode");
-        launchPrefCat.addPreference(codec_perf_mode);
 
 	/* ************************* */
 
@@ -132,6 +128,10 @@ public class Preferences extends PreferenceActivity {
 	info.setTitle(R.string.strDeviceInfo);
 	devsCat.addPreference(info);
 
+        CheckBoxPreference codec_perf_mode = new CheckBoxPreference(this);
+        codec_perf_mode.setTitle(R.string.strPerfMode);
+        codec_perf_mode.setKey("codec_perf_mode");
+        devsCat.addPreference(codec_perf_mode);
 
 	/* ************************* */
         

@@ -92,7 +92,7 @@ int audio_stop(playback_ctx *ctx)
     log_info("context %p in state %d", ctx, in_state);
 
     if(in_state == STATE_STOPPED) {
-	log_err("stopped already");
+	/* log_err("stopped already"); */
 	pthread_mutex_unlock(&ctx->mutex);
 	return 0;
     }		

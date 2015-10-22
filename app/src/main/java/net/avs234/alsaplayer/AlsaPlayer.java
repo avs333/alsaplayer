@@ -190,7 +190,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     						if(setAdapter(f) && i > 0) {
     							log_msg("starting from \"" + startfile + "\" in \""  + f.toString() + "\"");
     							srv.registerCallback(cBack);
-    		    					update_headset_mode(null);
+    		    					update_headset_mode();
 							update_device_settings();
 	    		    				playDir(f,startfile);
     							return;
@@ -198,7 +198,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     					} else if(f.exists() && (f.isDirectory() || hasPlistExt(startfile) || hasCueExt(startfile))) {
     						if(setAdapter(f)) {
     		    					srv.registerCallback(cBack);
-    		    					update_headset_mode(null);
+    		    					update_headset_mode();
 							update_device_settings();
     							playPath(f);
     							return;
@@ -248,7 +248,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     				    } else cBack.playItemChanged(true,getString(R.string.strStopped));
     				}
     				srv.registerCallback(cBack);
-    				update_headset_mode(null);
+    				update_headset_mode();
 				update_device_settings();
     			} catch(RemoteException e) {log_msg("remote exception in onServiceConnected: " + e.toString()); }
     		//	Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
@@ -553,7 +553,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     			int index = srv.get_cur_pos();
     			prefs.last_played_pos = index;
     			prefs.last_played_time = seconds;
-        		if(!prefs.savebooks) return;
+        		if(!prefs.save_books) return;
         		if(book_file.exists()) book_file.delete();
     			BufferedWriter writer = new BufferedWriter(new FileWriter(book_file, false), 8192);
     			String g = s + String.format(":%d:%d", seconds, index);   
@@ -957,37 +957,21 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         protected void onResume() {
         	super.onResume();
         	
-        	// getting settings
-        	SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
-        	boolean s_m = settings.getBoolean("shuffle_mode", false);
-        	boolean b_m = settings.getBoolean("book_mode", false);
-        	//if(d_m) {
-        	//	ButtonVolume.setVisibility(View.VISIBLE);
-        	//} else {
-        	//	ButtonVolume.setVisibility(View.GONE);
-        	//}
 		ButtonVolume.setVisibility(View.GONE);	
-			if(b_m) {
-				prefs.savebooks = true;
-			} else {
-				prefs.savebooks = false;
-			}
-			if(s_m != prefs.shuffle) {
-				playlist_changed = true;
-			}
-			if(s_m) {
-				prefs.shuffle = true;
-			} else {
-				prefs.shuffle = false;
-			}
-		update_headset_mode(settings);
+
+        	boolean shuffle = prefs.shpr.getBoolean("shuffle_mode", false);
+		if(shuffle != prefs.shuffle) playlist_changed = true;
+		prefs.shuffle = shuffle;
+
+		prefs.save_books = prefs.shpr.getBoolean("save_books", false);
+ 
+		update_headset_mode();
         }
 
-        void update_headset_mode(SharedPreferences settings) {
-        	if(settings == null) settings = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
-			prefs.headset_mode = 0;
-            if(settings.getBoolean("hs_remove_mode", false)) prefs.headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_REMOVE;
-            if(settings.getBoolean("hs_insert_mode", false)) prefs.headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_INSERT;
+        void update_headset_mode() {
+	    prefs.headset_mode = 0;
+            if(prefs.shpr.getBoolean("hs_remove_mode", false)) prefs.headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_REMOVE;
+            if(prefs.shpr.getBoolean("hs_insert_mode", false)) prefs.headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_INSERT;
             if(srv != null) try {
             	srv.set_headset_mode(prefs.headset_mode);
             } catch (RemoteException r) {
@@ -1005,7 +989,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 				log_err("AlsaPlayerSrv.getDevices() says no devices are available!");
 				return false;
 			}
-			prefs.parse_devstring(devices[0]);
+			prefs.dev_string = devices[0];
+			prefs.parse_devstring();
 			log_msg("parse_devstring returned hw:" + prefs.card + "," + prefs.device + " -- set it now!");
 		} else log_msg("calling set_device for card= hw:" + prefs.card + "," + prefs.device);
 
@@ -1029,10 +1014,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		super.onCreate(savedInstanceState);
 
             Intent ii = getIntent();
-	    shpr = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
 
 	    prefs = new Prefs();
-            prefs.load();
             
             // ui preferences
             setTheme(android.R.style.Theme_Light);
@@ -1093,48 +1076,61 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	public void  onConfigurationChanged  (Configuration  newConfig) {
     		super.onConfigurationChanged(newConfig);
     	}
-
-    	// Save/restore user preferences.
-
-	public SharedPreferences shpr = null;
     	
         class Prefs {
-        	
-	//     	public static final String PREFS_NAME = "prefs_avs234_alsaplayer";
 
-        	public String last_path;
-        	public String plist_path;
-        	public String plist_name;
-        	public String last_played_file;
-        	public boolean shuffle;
-        	public boolean savebooks;
-        	public int headset_mode;
-        	public int last_played_pos;
-        	public int last_played_time;
+		public SharedPreferences shpr;
 		public int card, device;
+        	public int headset_mode;
+
+		/* changed locally */
+        	public String last_path;
+        	public String last_played_file;
+               	public int last_played_pos;
+        	public int last_played_time;
+ 		public String plist_path;
+        	public String plist_name;
+
+        	/* changed in settings */
+		public boolean shuffle;
+        	public boolean save_books;
 		public boolean codec_perf_mode;
-        	public void load() {
-       // 		SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
-                	shuffle = shpr.getBoolean("shuffle_mode", false);		
-	                savebooks = shpr.getBoolean("save_books", false);
+
+		/* changed both in settings and locally */
+		public String dev_string;
+
+
+        	public Prefs() {
+
+	    		shpr = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
+			card = -1;
+			device = -1;
+
 	                last_path = shpr.getString("last_path", null);
 	                last_played_file = shpr.getString("last_played_file", null);
 	                last_played_pos = shpr.getInt("last_played_pos",0);
 	                last_played_time = shpr.getInt("last_played_time",0);
 	                plist_path = shpr.getString("plist_path", Environment.getExternalStorageDirectory().toString());
 	                plist_name = shpr.getString("plist_name", "Favorites");
+			
+			update();
+		}
+
+		public void update() {
+                	shuffle = shpr.getBoolean("shuffle_mode", false);
+	                save_books = shpr.getBoolean("save_books", false);
 			codec_perf_mode = shpr.getBoolean("codec_perf_mode", false);
 	                headset_mode = 0;
 	                if(shpr.getBoolean("hs_remove_mode", false)) headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_REMOVE;
 	                if(shpr.getBoolean("hs_insert_mode", false)) headset_mode |= AlsaPlayerSrv.HANDLE_HEADSET_INSERT;
+			dev_string = shpr.getString("device", null);
 			parse_devstring();        
 		}
         
         	public void save() {
-        //	  	SharedPreferences shpr = getSharedPreferences(PREFS_NAME, 0);
         	  	SharedPreferences.Editor editor = shpr.edit();
         	  	editor.putBoolean("shuffle_mode", shuffle);
-        	  	editor.putBoolean("save_books", savebooks);
+        	  	editor.putBoolean("save_books", save_books);
    		/*	editor.putBoolean("codec_perf_mode", codec_perf_mode); */
         	  	editor.putBoolean("hs_remove_mode", (headset_mode & AlsaPlayerSrv.HANDLE_HEADSET_REMOVE) != 0);
         	  	editor.putBoolean("hs_insert_mode", (headset_mode & AlsaPlayerSrv.HANDLE_HEADSET_INSERT) != 0);
@@ -1151,25 +1147,18 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			log_msg("preferences saved");        	  	
         	}
 		public void parse_devstring() {
-			parse_devstring(null);
-		}
-		public void parse_devstring(String devstring) {
-       	//		SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
-	//		String devstring = settings.getString("device", "00-00");
-
-	//		String devstring = shpr.getString("device", null);
-			if(devstring == null) {
-				devstring = shpr.getString("device", null);
-				if(devstring == null) {
+			if(dev_string == null) {
+				dev_string = shpr.getString("device", null);
+				if(dev_string == null) {
 					log_msg("no device in preferences yet!");
 					card = -1; device = -1;
 					return;
 				}
 			}
-			log_msg("devstring is " + devstring);
+			log_msg("devstring is " + dev_string);
 			try {
 				Pattern p = Pattern.compile("(\\d+)-(\\d+)");
-			 	Matcher m = p.matcher(devstring);
+			 	Matcher m = p.matcher(dev_string);
 				m.find();
 				card = Integer.parseInt(m.group(1));
 				device = Integer.parseInt(m.group(2));
@@ -1537,7 +1526,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 		log_msg("onActivityResult: request " + requestCode + " result " + resultCode);
 		int cur_dev = prefs.device;
 		int cur_card = prefs.card;	
-		prefs.parse_devstring();	
+		prefs.update();	
 		if((cur_dev != prefs.device || cur_card != prefs.card) && srv != null) {
 			log_msg("switching from " + cur_card + ":" + cur_dev + " to " + prefs.card + ":" + prefs.device);
 			try {
