@@ -104,7 +104,7 @@ static int ape_calc_seekpos(struct ape_ctx_t* ape_ctx,
 
 int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int start) 
 {
-    int currentframe, nblocks, bytesconsumed, bytesperblock;
+    int currentframe, nblocks, bytesconsumed, bytesperblock, framesperblock;
     int bytesinbuffer, blockstodecode, firstbyte;
     int fd = -1, i = 0, n, bytes_to_write;
 
@@ -151,11 +151,6 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	return nbytes;
     }	
 
-	if(alsa_is_offload(ctx)) {
-	    log_err("offload playback not supported for ape");
-	    ret = LIBLOSSLESS_ERR_INV_PARM;
-	    goto done;		
-	}
 
 #ifdef ANDROID
 	file = (*env)->GetStringUTFChars(env,jfile,NULL);
@@ -264,6 +259,24 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	ctx->written = 0;
  	ctx->track_time = ape_ctx.totalsamples/ape_ctx.samplerate;
 	ctx->block_max = ctx->block_min = 4096;
+/*	ctx->block_max = ctx->block_min = 2048; */
+
+	if(alsa_is_offload(ctx)) {
+	    ctx->ape_ver = ape_ctx.fileversion;
+	    ctx->ape_compr = ape_ctx.compressiontype;
+	    ctx->ape_fmt = ape_ctx.formatflags; 
+	    ctx->ape_bpf = ape_ctx.blocksperframe;
+	    ctx->ape_fin = ape_ctx.finalframeblocks; 
+	    ctx->ape_tot = ape_ctx.totalframes - currentframe;
+	    free(decoded[0]); free(decoded[1]);
+	    free(pcmbuf);
+#ifdef ANDROID
+	    if(file) (*env)->ReleaseStringUTFChars(env,jfile,file);
+#endif
+	    log_info("switching to offload playback");
+	    update_track_time(env, obj, ctx->track_time);
+	    return alsa_play_offload(ctx,fd,off);
+	}
 
 	cur_map_off = off & ~pg_mask;
 	cur_map_len = (flen - cur_map_off) > MMAP_SIZE ? MMAP_SIZE : flen - cur_map_off;
@@ -289,7 +302,11 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
         update_track_time(env,obj,ctx->track_time);
 
 	bytes_to_write = 0;
-	bytesperblock = (format->phys_bits/8) * ctx->block_max;
+
+	ctx->block_max = alsa_get_period_size(ctx);
+
+	bytesperblock = ctx->channels * (format->phys_bits/8) * ctx->block_max;
+	framesperblock = ctx->block_max;
 
 	/* Initialise the buffer */
 	bytesinbuffer = ape_read(inbuffer, INPUT_CHUNKSIZE);
@@ -398,7 +415,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 		if(n >= bytesperblock) {
 		    p = pcmbuf;
 		    do {
-			i = audio_write(ctx, p, bytesperblock);
+			i = audio_write(ctx, p, alsa_is_mmapped(ctx) ? framesperblock :  bytesperblock);
 			if(i < 0) {
 			    if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
 			    goto done;

@@ -106,8 +106,17 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
     struct timeval tstart, tstop, tdiff;
     int min_fragments, max_fragments, min_fragment_size, max_fragment_size;
     enum playback_state state;
-    	
+
 	pthread_mutex_lock(&ctx->mutex);
+
+	k = (*compr_fmt_check) (ctx->file_format, priv->supp_codecs_mask);
+	if(k != 0) {
+	    log_err("offload playback of format=%d not supported (codecs mask=%llx)", 
+			ctx->file_format, (unsigned long long) priv->supp_codecs_mask);
+	    ret = LIBLOSSLESS_ERR_FORMAT;
+	    goto err_exit;
+	}
+
 	if(ctx->state != STATE_STOPPED) {
 	    log_info("context live, stopping");
 	    pthread_mutex_unlock(&ctx->mutex);  
@@ -161,7 +170,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    goto err_exit;
 	}
 
-	log_info("device reports: max %d chunks of min %d size", max_fragments, min_fragment_size);	
+	log_info("device accepts %d to %d chunks of size %d to %d", min_fragments, max_fragments, min_fragment_size, max_fragment_size);	
 #ifndef ANDROID
 	priv->chunks = forced_chunks ? forced_chunks : max_fragments;
 	priv->chunk_size = forced_chunk_size ? forced_chunk_size : min_fragment_size;

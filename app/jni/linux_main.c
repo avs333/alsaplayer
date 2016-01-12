@@ -29,7 +29,7 @@ extern int security_setenforce(int value);
 #endif
 
 int quiet_run = 0;
-
+static int need_show_time = 0;
 static jlong ctx = 0;
 
 struct call_args {
@@ -60,6 +60,7 @@ static int usage(char *prog)
 		 "-p\tforce number and size of periods (in frames) or fragments (in bytes)\n"
 		 "-q\tquiet mode, suppress extra info\n"
 		 "-i\ttest the selected device and show its information\n"
+		 "-w\tshow stream time\n"
 	);
 }
 
@@ -72,6 +73,18 @@ void *thd(void *a)
 	pthread_sigmask(SIG_BLOCK, &set, NULL);
 	audio_play(0, 0, (playback_ctx *) ctx, args->file, args->ftype, args->min*60 + args->sec);	
     return 0;	
+}
+
+void *time_thd(void *a)
+{
+    int sec;
+    while(need_show_time) {
+	if(!ctx) break;
+	sec = audio_get_cur_position(0, 0, ctx);
+	printf("sec = %d\n", sec);
+	sleep(1);
+    }
+    return 0; 
 }
 
 void pause_resume(int sig) {
@@ -95,7 +108,7 @@ int main(int argc, char **argv)
 {
     int card = 0, device = 0, info = 0, opt;
     char *c;
-    pthread_t thread;
+    pthread_t thread, time_thread;
     sigset_t set;
     struct call_args args[1];
 
@@ -108,7 +121,7 @@ int main(int argc, char **argv)
 	signal(SIGUSR1, pause_resume);	
 	signal(SIGUSR2, pause_resume);	
 
-	while ((opt = getopt(argc, argv, "c:d:s:t:qix:p:")) != -1) {
+	while ((opt = getopt(argc, argv, "c:d:s:t:qix:p:w")) != -1) {
 	    switch (opt) {
 		case 'c':
 		    card = atoi(optarg);
@@ -134,6 +147,9 @@ int main(int argc, char **argv)
 		case 't':
 		    args->track = atoi(optarg);
 		    break; 
+		case 'w':
+		    need_show_time = 1;
+		    break;	
 		case 'q':
 		    quiet_run = 1;
 		    break;
@@ -191,8 +207,13 @@ int main(int argc, char **argv)
 	if(!ctx) return -1;	
 
 	pthread_create(&thread, 0, thd, args);
-	pthread_join(thread, 0);
+	if(need_show_time) pthread_create(&time_thread, 0, time_thd, 0);
 
+	pthread_join(thread, 0);
+	if(need_show_time) {
+	    need_show_time = 0;
+	    pthread_join(time_thread, 0);	
+	}
 	audio_exit(0, 0, ctx);
 	if(args->file) free(args->file);
 

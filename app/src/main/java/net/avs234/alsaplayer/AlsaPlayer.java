@@ -104,6 +104,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		Log.e(getClass().getSimpleName(), msg);
     	}
 
+	private final boolean Marshmallow = true;    
+
 	
     	// UI elements defined in layout xml file.
     	private LinearLayout layout_background;
@@ -233,7 +235,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     				
     				if(s == null) {
   				    if(prefs.last_path == null || !(cur_path = new File(prefs.last_path)).exists()) {
-    		           		 	cur_path = Environment.getExternalStorageDirectory();
+    		           		 	cur_path = Marshmallow ? new File("/sdcard") : Environment.getExternalStorageDirectory();
     			            }	
 	    		            if(!setAdapter(cur_path)) {
    	 		            	log_err("cannot set default adapter!!!" + cur_path);
@@ -455,25 +457,6 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			}
     	}
 
-
-/*	@Override
-	public boolean onKeyDown(int keyCode, KeyEvent event){
-
-	    if(keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-		log_msg("Volume up");
-		if(srv != null) try {  srv.inc_vol(); } catch (Exception e) {}
-	        return true;
-	    }
-
-	    if(keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-		log_msg("Volume down");
-		if(srv != null) try { srv.dec_vol(); } catch (Exception e) {}	
-	        return true;
-	    }
-	
-	    return super.onKeyDown(keyCode, event);
-	} */
-
 	@Override
 	public boolean dispatchKeyEvent(KeyEvent event) {
 	    if(srv == null) return super.dispatchKeyEvent(event);
@@ -501,7 +484,6 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	        return super.dispatchKeyEvent(event);
 	    }
 	}
-
 
     	// Load the server playlist with contents of arrays, and play starting from the k-th item @ time start. 
     	
@@ -1016,7 +998,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
             Intent ii = getIntent();
 
 	    prefs = new Prefs();
-            
+	    if(prefs == null) log_err("PREFS NULL!");	
+
             // ui preferences
             setTheme(android.R.style.Theme_Light);
             setContentView(R.layout.main);
@@ -1038,7 +1021,6 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
             
             if(startService(intie)== null) log_msg("service not started");
             else log_msg("started service");
-
             if(conn == null) conn = new_connection();
 
             if(ii.getAction().equals(Intent.ACTION_VIEW) || ii.getAction().equals(AlsaPlayerSrv.ACTION_VIEW)) { 
@@ -1076,7 +1058,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	public void  onConfigurationChanged  (Configuration  newConfig) {
     		super.onConfigurationChanged(newConfig);
     	}
-    	
+
         class Prefs {
 
 		public SharedPreferences shpr;
@@ -1095,14 +1077,15 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 		public boolean shuffle;
         	public boolean save_books;
 		public boolean codec_perf_mode;
+		public boolean night_mode;
 
 		/* changed both in settings and locally */
 		public String dev_string;
 
-
         	public Prefs() {
 
 	    		shpr = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
+	//		shpr = getSharedPreferences(PREFS_NAME, 0);
 			card = -1;
 			device = -1;
 
@@ -1110,7 +1093,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	                last_played_file = shpr.getString("last_played_file", null);
 	                last_played_pos = shpr.getInt("last_played_pos",0);
 	                last_played_time = shpr.getInt("last_played_time",0);
-	                plist_path = shpr.getString("plist_path", Environment.getExternalStorageDirectory().toString());
+	                plist_path = shpr.getString("plist_path", Marshmallow ? "/sdcard" : Environment.getExternalStorageDirectory().toString());
 	                plist_name = shpr.getString("plist_name", "Favorites");
 			
 			update();
@@ -1118,6 +1101,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 
 		public void update() {
                 	shuffle = shpr.getBoolean("shuffle_mode", false);
+                	night_mode = shpr.getBoolean("night_mode", true);
 	                save_books = shpr.getBoolean("save_books", false);
 			codec_perf_mode = shpr.getBoolean("codec_perf_mode", false);
 	                headset_mode = 0;
@@ -1130,6 +1114,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
         	public void save() {
         	  	SharedPreferences.Editor editor = shpr.edit();
         	  	editor.putBoolean("shuffle_mode", shuffle);
+        	  	editor.putBoolean("night_mode", night_mode);
         	  	editor.putBoolean("save_books", save_books);
    		/*	editor.putBoolean("codec_perf_mode", codec_perf_mode); */
         	  	editor.putBoolean("hs_remove_mode", (headset_mode & AlsaPlayerSrv.HANDLE_HEADSET_REMOVE) != 0);
@@ -1475,24 +1460,19 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
    			}
 		
 		}
-    	
-    	private boolean mNightMode = true;
+    
     	private void readNightMode() {
     		
-    		SharedPreferences shpr = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
-    		
-    		mNightMode = shpr.getBoolean("NightMode", true);
-
     		if (layout_background != null) {
-    			if (mNightMode) {
+    			if (prefs.night_mode) {
     				layout_background.setBackgroundColor(Color.BLACK);
     			} else {
     				layout_background.setBackgroundResource(R.drawable.bg);
-    			}
+    			} 
     		}
     		
     		if (LinearLayout01 != null) {
-    			if (mNightMode) {
+    			if (prefs.night_mode) {
     				LinearLayout01.setBackgroundColor(Color.BLACK);
     			} else {
     				LinearLayout01.setBackgroundColor(Color.WHITE);
@@ -1508,17 +1488,16 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     					tla = (IconifiedTextListAdapter) la;
     	
     					if (tla != null) {
-    						tla.setNightMode(mNightMode);
+    						tla.setNightMode(prefs.night_mode);
     						fileList.invalidateViews();
     					}
     				}
     			}
-
-    			if (mNightMode == false) {
+    			if (prefs.night_mode == false) {
 					fileList.setBackgroundResource(android.R.color.background_light);
 				} else {
 					fileList.setBackgroundResource(android.R.color.background_dark);
-				}
+				} 
     		}
     	}
 	@Override
@@ -1553,15 +1532,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	     	
     		case R.id.NightMode:
     			// read old value
-    			SharedPreferences shpr = PreferenceManager
-    					.getDefaultSharedPreferences(getBaseContext());
-    			boolean nightMode = shpr.getBoolean("NightMode", true);
-
-    			// invert & save
-    			SharedPreferences.Editor editor = shpr.edit();
-    			editor.putBoolean("NightMode", !nightMode);
-    			editor.commit();
-
+			prefs.night_mode = !prefs.night_mode;
     			// set global variable + apply
     			readNightMode();
 
@@ -1698,15 +1669,21 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		File [] filez;
     		int dirs, cues, flacs;
     	}
-    	
+	
+	
     	private parsed_dir parseDir(File fpath) {
     		
     		int dirs = 0, cues = 0, flacs = 0;
+
+		if(Marshmallow) log_msg("Scanning directory " + fpath.toString());
 			
     		File [] filez = fpath.listFiles();
 			
 			// listFiles() may return null in some conditions.
-			if(filez == null || filez.length == 0) return null;
+			if(filez == null || filez.length == 0) {
+				if(Marshmallow) log_msg("empty dir, returning");
+				return null;
+			}
 		    		
 			Comparator<File>cmp = this;
 			Arrays.sort(filez,	cmp);  
@@ -1729,7 +1706,10 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 					default: break;
 				}
 			}
-			if(dirs + cues + flacs == 0) return null;  
+			if(dirs + cues + flacs == 0) {
+				if(Marshmallow) log_msg("dirs + cues + flacs == 0, returning");
+				return null;  
+			}
 			parsed_dir r = new parsed_dir();
 			r.dirs = dirs; r.cues = cues; r.flacs = flacs;
 			r.filez = new File[dirs+cues+flacs];

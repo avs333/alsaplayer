@@ -38,6 +38,7 @@
 
 
 extern int compr_get_version(playback_ctx *ctx, int fd);
+extern int _FN(compr_fmt_check) (int fmt, uint64_t codecs_mask); 
 extern int _FN(compr_get_codecs) (int fd, int **codecs); 
 extern int _FN(compr_get_caps) (int fd, int *min_fragments, int *max_fragments, int *min_fragment_size, int *max_fragment_size); 
 extern int _FN(compr_set_hw_params) (playback_ctx *ctx, int fd, int chunks, int chunk_size, int force);

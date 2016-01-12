@@ -12,9 +12,9 @@ typedef struct _alsa_priv {
     void *xml_dev;				/* device xml data handle */
     int is_offload;				/* compressed stream playback */
     int is_mmapped;				/* mmapped playback, not implemented yet */
-    int supp_formats_mask;			/* as per mask field of supp_formats struct */
-    int supp_rates_mask;			/* as per mask field of supp_rates struct */
-    int supp_codecs_mask;			/* for offload playback */
+    uint32_t supp_formats_mask;			/* as per mask field of supp_formats struct */
+    uint32_t supp_rates_mask;			/* as per mask field of supp_rates struct */
+    uint64_t supp_codecs_mask;			/* for offload playback */
     struct nvset *nv_start;			/* controls to start playback for this device */
     struct nvset *nv_stop;			/* controls to stop playback for this device */
     struct nvset *nv_rate[MAX_RATES];		/* controls to setup playback rates for this device */	

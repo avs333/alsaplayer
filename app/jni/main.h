@@ -83,6 +83,9 @@ typedef struct {
    struct pcm_buffer_t *buff; 
    void *alsa_priv;
    int  alsa_error;			/* set on error exit from alsa thread  */
+   unsigned short ape_ver, ape_compr;	/* ape-specific stuff */
+   unsigned int ape_fmt, ape_bpf;
+   unsigned int ape_fin, ape_tot;
 } playback_ctx;
 
 /* main.c */
@@ -93,6 +96,7 @@ extern int check_state(playback_ctx *ctx, const char *func);
 extern void update_track_time(JNIEnv *env, jobject obj, int time);
 extern enum playback_state  sync_state(playback_ctx *ctx, const char *func);
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, jint format, jint start);
+extern jint audio_get_cur_position(JNIEnv *env, jobject obj, jlong jctx);
 #ifndef ANDROID
 extern jlong audio_init(JNIEnv *env, jobject obj, jlong prev_ctx, jint card, jint device);
 extern jboolean audio_exit(JNIEnv *env, jobject obj, jlong ctx);

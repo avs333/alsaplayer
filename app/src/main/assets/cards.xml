@@ -3,7 +3,7 @@
 
   <!-- builtin=1 means device setup should be added from mixer_paths.xml -->
   <card name="(msm8974|apq8084|msm8984).*" builtin="1">
-    <device id="0">
+    <device id="0" mmap="1">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
 	<path name="common_settings"/>
@@ -26,7 +26,7 @@
 	    <ctl name="HPHL Volume" value="16"/>
 	</path>
     </device>
-    <device id="15">
+    <device id="15" mmap="1">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="0"/> </path>
 	<path name="common_settings"/>
@@ -51,12 +51,6 @@
 	    <ctl name="RX1 Digital Volume" value="118" min="40" max="124"/>
 	    <ctl name="RX2 Digital Volume" value="118" min="40" max="124"/>
 	</path>
-	<!-- Will work OK for both formats if we left-shift 24-bit samples by 8 bits
-	<path name="digital_volume">
-	    <ctl name="RX1 Digital Volume" value="80" min="0" max="84"/>
-	    <ctl name="RX2 Digital Volume" value="80" min="0" max="84"/>
-	</path>
-	-->
 	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
 	    <ctl name="HPHR Volume" value="16"/>
 	    <ctl name="HPHL Volume" value="16"/>
@@ -70,47 +64,60 @@
 
 
   <card name="(msm8994).*" builtin="1">
-    <!-- "Deep buffer" may be cured by setting "Audio Stream 0 App Type Cfg" to "0 0 0" ([app_type acdb_id rate])
+    <!-- Terrible distortions @ 24 bit	
     <device id="0">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
 	<path name="common_pcm_settings"/>
     </device> -->
-    <device id="1">
+    <device id="1" mmap="1">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="0"/> </path>
 	<path name="common_pcm_settings"/>
     </device>
-    <!-- "Ultra low latency" doesn't support anything other than 16/48k
+    <!-- Dunno what it tries to spit out	
     <device id="4">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia3" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia3" value="0"/> </path>
 	<path name="common_pcm_settings"/>
     </device> -->
     <device id="9" offload="1">
-	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="1"/> </path>
-	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="0"/> </path>
+	<path name="start"> 
+		<ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="1"/> 
+		<ctl name="Compress Playback 9 Volume" value="8192 8192"/> 
+	</path>
+	<path name="stop"> 
+		<ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia4" value="0"/> 
+		<ctl name="Compress Playback 9 Volume" value="0 0"/> 
+	</path>
 	<path name="common_offload_settings"/>
     </device>
-    <device id="15">
+    <device id="15" mmap="1">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia5" value="0"/> </path>
 	<path name="common_pcm_settings"/>
     </device>
     <device id="17" offload="1">
-	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia7" value="1"/> </path>
-	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia7" value="0"/> </path>
+	<path name="start"> 
+		<ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia7" value="1"/> 
+		<ctl name="Compress Playback 17 Volume" value="8192 8192"/> 
+	</path>
+	<path name="stop"> 
+		<ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia7" value="0"/> 
+		<ctl name="Compress Playback 17 Volume" value="0 0"/> 
+	</path>
 	<path name="common_offload_settings"/>
     </device>
     <device id="18" offload="1">
-	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="1"/> </path>
-	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="0"/> </path>
+	<path name="start"> 
+		<ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="1"/> 
+		<ctl name="Compress Playback 18 Volume" value="8192 8192"/> 
+	</path>
+	<path name="stop"> 
+		<ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia10" value="0"/> 
+		<ctl name="Compress Playback 18 Volume" value="0 0"/> 
+	</path>
 	<path name="common_offload_settings"/>
-    </device>
-    <device id="35">
-	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia9" value="1"/> </path>
-	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia9" value="0"/> </path>
-	<path name="common_pcm_settings"/>
     </device>
     <!-- *Offload* devices with ids 37 thru 42 also available (MultiMedia11 thru 16)  -->	
     <path name="common_pcm_settings">	
@@ -133,12 +140,6 @@
 	    <ctl name="RX3 Digital Volume" value="118" min="40" max="124"/>
 	    <ctl name="RX5 Digital Volume" value="118" min="40" max="124"/>
 	</path>
-	<!-- Will work OK for both formats if we left-shift 24-bit samples by 8 bits
-	<path name="digital_volume">
-	    <ctl name="RX3 Digital Volume" value="80" min="0" max="84"/>
-	    <ctl name="RX5 Digital Volume" value="80" min="0" max="84"/>
-	</path>
-	-->
 	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
 	    <ctl name="HPHR Volume" value="16"/>
 	    <ctl name="HPHL Volume" value="16"/>
@@ -164,7 +165,7 @@
 
   <card name="E-MU 0404 | USB">
      <!-- S24_3LE playback only -->
-    <device id="0">
+    <device id="0" mmap="1">
 	<path name="settings0"/>
     </device>	
     <!-- S16_LE playback only -->

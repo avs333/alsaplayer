@@ -213,6 +213,8 @@ Linux pc, period size 9648:
 	return LIBLOSSLESS_ERR_INIT;	
 }
 
+/* size in frames if mmapped, in bytes otherwise */
+
 int audio_write(playback_ctx *ctx, void *buff, int size) 
 {
     enum playback_state state;
@@ -392,15 +394,6 @@ static jint audio_get_duration(JNIEnv *env, jobject obj, jlong jctx)
    return ctx->track_time;
 }
 
-/* in seconds */
-static jint audio_get_cur_position(JNIEnv *env, jobject obj, jlong jctx) 
-{
-   playback_ctx *ctx = (playback_ctx *) jctx;
-   if(!ctx) return 0;
-//   if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
-   return alsa_is_offload(ctx) ? alsa_time_pos_offload(ctx) : ctx->written/ctx->samplerate;
-}
-
 static jboolean in_offload_mode(JNIEnv *env, jobject obj, jlong jctx)
 {
    playback_ctx *ctx = (playback_ctx *) jctx;
@@ -408,6 +401,16 @@ static jboolean in_offload_mode(JNIEnv *env, jobject obj, jlong jctx)
 }
 
 #endif
+
+/* in seconds */
+jint audio_get_cur_position(JNIEnv *env, jobject obj, jlong jctx) 
+{
+   playback_ctx *ctx = (playback_ctx *) jctx;
+   if(!ctx) return 0;
+//   if(!ctx || (ctx->state != STATE_PLAYING && ctx->state != STATE_PAUSED)) return 0;
+   return alsa_is_offload(ctx) ? alsa_time_pos_offload(ctx) : ctx->written/ctx->samplerate;
+}
+
 
 
 #ifdef ANDROID

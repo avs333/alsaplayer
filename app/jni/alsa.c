@@ -194,8 +194,7 @@ static inline char *cat_str(char *dest, const char *src)
 	}
 }
 
-#define CODEC_MAX	31	/* to fit in one word */
-static const char *compr_codecs[CODEC_MAX+1] = {
+static const char *compr_codecs[] = {
    [0x1] = "SND_AUDIOCODEC_PCM", [0x2] = "SND_AUDIOCODEC_MP3", [0x3] = "SND_AUDIOCODEC_AMR",	
    [0x4] = "SND_AUDIOCODEC_AMRWB", [0x5] = "SND_AUDIOCODEC_AMRWBPLUS", [0x6] = "SND_AUDIOCODEC_AAC",
    [0x7] = "SND_AUDIOCODEC_WMA", [0x8] = "SND_AUDIOCODEC_REAL", [0x9] = "SND_AUDIOCODEC_VORBIS",
@@ -204,7 +203,10 @@ static const char *compr_codecs[CODEC_MAX+1] = {
    [0x10] = "SND_AUDIOCODEC_AC3_PASS_THROUGH", [0x11] = "SND_AUDIOCODEC_WMA_PRO", [0x12] = "SND_AUDIOCODEC_DTS_PASS_THROUGH",
    [0x13] = "SND_AUDIOCODEC_DTS_LBR", [0x14] = "SND_AUDIOCODEC_DTS_TRANSCODE_LOOPBACK", [0x15] = "SND_AUDIOCODEC_PASS_THROUGH",
    [0x16] = "SND_AUDIOCODEC_MP2", [0x17] = "SND_AUDIOCODEC_DTS_LBR_PASS_THROUGH", [0x18] = "SND_AUDIOCODEC_EAC3",
+   [0x19] = "SND_AUDIOCODEC_ALAC", [0x20] = "SND_AUDIOCODEC_APE",
 };
+
+static const int last_supp_codec = (sizeof(compr_codecs)/sizeof(compr_codecs[0]) - 1);
 
 /* Switch to card/device if it's changed: 
    Initialise device controls, parse xml file (if any) to find device description 
@@ -220,6 +222,8 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
     struct snd_pcm_hw_params hwparams;
     int  *codecs;
     char *c = 0;
+    struct nvset *nvstart = 0;  /* Just to open the device: startup ctls (if any) w/o hph setup */
+    struct nvset *nvstop = 0;
 
 	if(!ctx) {
 	    log_err("no context");
@@ -314,10 +318,12 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    nv = xml_dev_find_ctls(xml_dev, "start", 0);
 	    if(!priv->nv_start) priv->nv_start = nv;
 	    else nv1->next = nv;	/* if nv_start was found before, nv1 must point to its tail */
+	    nvstart = nv;
 
 	    nv = xml_dev_find_ctls(xml_dev, "stop", 0);
 	    if(!priv->nv_stop) priv->nv_stop = nv2 = nv;
 	    else nv2->next = nv; 	/* if nv_stop was found before, nv2 must point to its tail */
+	    nvstop = nv;	
 
 	    while(nv2 && nv2->next) nv2 = nv2->next;	/* set nv2 -> tail of nv_stop */
 	    
@@ -339,8 +345,8 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    else nv2->next = nv;	/* if nv_stop was found before, nv2 must point to its tail */	
 	}
 	/* fire up */
-	if(priv->nv_start) {
-	    k = set_mixer_controls(ctx, priv->nv_start);
+	if(nvstart) {
+	    k = set_mixer_controls(ctx, nvstart);
 	    if(k < 0) {
 		log_err("failed to startup card %d", card);
 		ret = LIBLOSSLESS_ERR_AU_SETUP;
@@ -373,10 +379,10 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
     	    c = cat_str(c, "Supported codecs:\n");
 	    for(k = 0; k < i; k++) {
 		int n = codecs[k];
-		if(n <= 0 || n > CODEC_MAX) continue; 
+		if(n <= 0 || n > last_supp_codec) continue; 
 		c = cat_str(c, compr_codecs[n]);
 		c = cat_str(c, "\n");
-		priv->supp_codecs_mask |= (1 << n);
+		priv->supp_codecs_mask |= (1ULL << n);
 	    }
 	    free(codecs);
 	    if(priv->supp_codecs_mask == 0) { 
@@ -441,6 +447,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    goto err_exit;	
 	}
 	priv->devinfo = c;
+	if(nvstop) set_mixer_controls(ctx, nvstop);
 	close(fd);
 	priv->xml_dev = xml_dev;	
 	if(priv->is_offload) log_info("selected card %d device %d [%smmapped] for offload playback", card, device, 
@@ -450,6 +457,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	return 0;
 
     err_exit:
+	if(nvstop) set_mixer_controls(ctx, nvstop);
 	if(fd >= 0) close(fd);
 	if(xml_dev) xml_dev_close(xml_dev);
 	if(c) free(c);
@@ -843,6 +851,8 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
      If flags & SNDRV_PCM_SYNC_PTR_HWSYNC -> snd_pcm_hwsync(substream)	
 */	
 
+/* #define EXTRA_VERBOSE	1 */
+
 static inline int get_avail(alsa_priv *priv)
 {
     int avail;
@@ -869,7 +879,7 @@ ssize_t alsa_write_mmapped(playback_ctx *ctx, void *buf, size_t count)
     int f2b = ctx->channels * priv->format->phys_bits/8;	    
 
 #ifdef EXTRA_VERBOSE
-    log_info("writing %d from %p priv=%p", (int) count, buf, priv->buf);
+    log_info("writing %d from %p to %p", (int) count, buf, priv->buf);
 #endif
     while(written != count) {	
 

@@ -3,6 +3,29 @@
 
 #ifdef _COMPR_PROTO_
 
+int _FN(compr_fmt_check) (int fmt, uint64_t codecs_mask)
+{
+    switch(fmt) {
+	case FORMAT_FLAC:	
+	    if(codecs_mask & (1ULL << SND_AUDIOCODEC_FLAC)) return 0;
+	    break;	
+	case FORMAT_WAV:	
+	    if(codecs_mask & (1ULL << SND_AUDIOCODEC_PCM)) return 0;
+	    break;	
+	case FORMAT_MP3:	
+	    if(codecs_mask & (1ULL << SND_AUDIOCODEC_MP3)) return 0;
+	    break;	
+#if _COMPR_PROTO_  ==  0102
+	case FORMAT_APE:	
+	    if(codecs_mask & (1ULL << SND_AUDIOCODEC_APE)) return 0;
+	    break;
+#endif	
+	default:
+	    break;	
+    }		
+    return -1;	
+}
+
 /* -1 on error, MAX_NUM_CODECS otherwise  */
 int _FN(compr_get_codecs) (int fd, int **ret_codecs)
 {
@@ -21,11 +44,13 @@ int _FN(compr_get_codecs) (int fd, int **ret_codecs)
 	}
 	memset(codecs, 0, sizeof(int) * MAX_NUM_CODECS);
 
+	/* ignore this due to common msm kernel bug 
+	log_info("total %d codecs supported", caps.num_codecs); */
+
 	for(i = 0; i < MAX_NUM_CODECS; i++) codecs[i] = caps.codecs[i];
 
 	*ret_codecs = codecs;	
 	
-	/* for msm kernel bug  */
     return MAX_NUM_CODECS;
 }
 
@@ -51,6 +76,17 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
     struct snd_compr_params params;
     int k;
 
+#if defined(ANDROID) || defined(ANDLINUX)
+#define PROP_VALUE_MAX  92
+    int __attribute__((weak)) __system_property_get(char *a, char *b);
+    static int sdk = 0;
+    char c[PROP_VALUE_MAX];
+	if(!sdk) {
+	    if(__system_property_get("ro.build.version.sdk",c) > 0) sscanf(c,"%d",&sdk);
+	    else sdk = 16;	
+	}
+#endif
+
 	k = alsa_get_rate(ctx->samplerate);
 	if(k < 0) {
 	    log_err("unsupported playback rate");
@@ -59,8 +95,11 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
 	memset(&params, 0, sizeof(params));
 	params.codec.ch_in = ctx->channels;			
 	params.codec.ch_out = ctx->channels;
+#if defined(ANDROID) || defined(ANDLINUX)
+	params.codec.sample_rate = (sdk >= 23) ? ctx->samplerate : k;
+#else
 	params.codec.sample_rate = k;
-
+#endif
 	log_info("source: format=%d, channels=%d, bps=%d, rate=%d bitrate=%d",
 		ctx->file_format, ctx->channels, ctx->bps, ctx->samplerate, ctx->bitrate);
 
@@ -85,6 +124,22 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
 		params.codec.id = SND_AUDIOCODEC_PCM;
 		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
 		break;	
+#if _COMPR_PROTO_  ==  0102
+	    case FORMAT_APE:
+		params.codec.id = SND_AUDIOCODEC_APE;
+		params.codec.options.ape.compatible_version = ctx->ape_ver;
+		params.codec.options.ape.compression_level = ctx->ape_compr;
+		params.codec.options.ape.format_flags = ctx->ape_fmt;
+		params.codec.options.ape.blocks_per_frame = ctx->ape_bpf;
+		params.codec.options.ape.final_frame_blocks = ctx->ape_fin;
+		params.codec.options.ape.total_frames = ctx->ape_tot;
+		params.codec.options.ape.bits_per_sample = ctx->bps;
+		params.codec.options.ape.num_channels = ctx->channels;
+		params.codec.options.ape.sample_rate = ctx->samplerate;
+		params.codec.options.ape.seek_table_present = 0;
+		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
+		break;
+#endif
 	    default:
 		log_err("unsupported playback format %d", ctx->file_format);
 		return LIBLOSSLESS_ERR_AU_SETUP;
@@ -99,11 +154,14 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
 		params.codec.options.flac_dec.max_frame_size, params.codec.options.flac_dec.sample_size,
 		params.buffer.fragments, params.buffer.fragment_size); */
 
-	while(ioctl(fd, SNDRV_COMPRESS_SET_PARAMS, &params) != 0) {
+	while(1) {
+	    errno = 0;
+	    k = ioctl(fd, SNDRV_COMPRESS_SET_PARAMS, &params);
+	    if(k == 0) break;	
 #ifndef ANDROID
 	    if(forced) {
-                log_err("failed to set forced parameters for fragments num=%d size=%d",
-                        forced_chunks, forced_chunk_size);
+                log_err("failed to set forced parameters for fragments num=%d size=%d (ret=%d)",
+                        forced_chunks, forced_chunk_size, k);
 		return  LIBLOSSLESS_ERR_AU_SETUP;
 	    }	
 #endif
@@ -113,7 +171,7 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
 		return LIBLOSSLESS_ERR_AU_SETUP;
 	    }				
 	    params.buffer.fragments = chunks;
-	    log_info("hw params setup failed, testing with %d chunks", chunks); 
+	    log_info("hw params setup failed (err=%d, errno=%d) testing with %d chunks", k, errno, chunks); 
 	}
     return 0;	
 }
@@ -165,6 +223,7 @@ int _FN(compr_avail) (int fd, int *av)
 #define _COMPR_PROTO_   0102
 #include "compr.h"
 
+int (*compr_fmt_check) (int fmt, uint64_t codecs_mask) = 0;
 int (*compr_get_codecs) (int fd, int **codecs) = 0;
 int (*compr_get_caps) (int fd, int *min_fragments, int *max_fragments, int *min_fragment_size, int *max_fragment_size) = 0;
 int (*compr_set_hw_params) (playback_ctx *ctx, int fd, int chunks, int chunk_size, int force) = 0;
@@ -190,6 +249,7 @@ int compr_get_version(playback_ctx *ctx, int fd)
 	switch(version) {
 	    case SNDRV_PROTOCOL_VERSION(0, 1, 1):
 		log_info("switching to compress protocol version %08x", version);
+		SET_PTR(compr_fmt_check, 0101);
 		SET_PTR(compr_get_codecs, 0101);
 		SET_PTR(compr_get_caps, 0101);
 		SET_PTR(compr_set_hw_params, 0101);
@@ -202,6 +262,7 @@ int compr_get_version(playback_ctx *ctx, int fd)
 		break;
 	    case SNDRV_PROTOCOL_VERSION(0, 1, 2):	
 		log_info("switching to compress protocol version %08x", version);
+		SET_PTR(compr_fmt_check, 0102);
 		SET_PTR(compr_get_codecs, 0102);
 		SET_PTR(compr_get_caps, 0102);
 		SET_PTR(compr_set_hw_params, 0102);

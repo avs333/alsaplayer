@@ -44,7 +44,11 @@ struct snd_compr_params {
 
 struct snd_compr_tstamp {
 	__u32 byte_offset;
+#ifdef __aarch64__
+	__u64 copied_total;
+#else
 	__u32 copied_total;
+#endif
 	__u32 pcm_frames;
 	__u32 pcm_io_frames;
 	__u32 sampling_rate;
@@ -114,7 +118,9 @@ struct snd_compr_metadata {
 #define SNDRV_COMPRESS_DRAIN		_IO('C', 0x34)
 #define SNDRV_COMPRESS_NEXT_TRACK	_IO('C', 0x35)
 #define SNDRV_COMPRESS_PARTIAL_DRAIN	_IO('C', 0x36)
-#define SNDRV_COMPRESS_ENABLE_EFFECT   _IOW('C', 0x70, int)
+#define SNDRV_COMPRESS_SET_NEXT_TRACK_PARAM\
+					_IOW('C', 0x37, union snd_codec_options)
+#define SNDRV_COMPRESS_ENABLE_EFFECT	_IOW('C', 0x70, int) 
 #define SND_COMPR_TRIGGER_DRAIN 7 
 #define SND_COMPR_TRIGGER_NEXT_TRACK 8
 #define SND_COMPR_TRIGGER_PARTIAL_DRAIN 9

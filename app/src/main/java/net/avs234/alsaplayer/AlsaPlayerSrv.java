@@ -5,6 +5,7 @@ import java.io.*;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import android.app.Notification;
@@ -748,75 +749,6 @@ public class AlsaPlayerSrv extends Service {
 	    return START_STICKY;
 	}
 
-	public synchronized static boolean setPermissions(boolean perf_mode) {
-	    boolean result = false;
-	    java.lang.Process process = null;
-	    DataOutputStream os = null;
-	    File g = null;
-		log_msg("setPermissions entry");
-		if(perf_mode) {
-		    g = new File("/sys/module/snd_soc_wcd9330/parameters/high_perf_mode");
-		    if(!g.exists()) {
-		    	g = new File("/sys/module/snd_soc_wcd9320/parameters/high_perf_mode");
-			if(!g.exists()) g = null;
-		    }
-		}	 	
-	        try {
-        	    process = new ProcessBuilder("su").redirectErrorStream(true).start();
-	            os = new DataOutputStream(process.getOutputStream());
-		    log_msg("setting selinux to permissive mode");	
-	            os.write(("/system/bin/setenforce 0\n").getBytes());
-	            os.flush();
-		    log_msg("setting /dev/snd permissions/context");	
-		    os.write(("/system/bin/chmod 0777 /dev/snd\n").getBytes());
-		    os.flush();	
-                    os.write(("/system/bin/chcon u:object_r:device:s0 /dev/snd\n").getBytes());
-		    os.flush();
-		    log_msg("setting devices permissions/context");	
-		    File [] devices = (new File("/dev/snd")).listFiles();
-		    for(int i = 0; i < devices.length; i++) {
-		//	log_msg("device " + i + " " + devices[i]);
-		    	os.write(("/system/bin/chmod 0666 " + devices[i].toString() + "\n").getBytes());
-			os.flush();
-			os.write(("/system/bin/chcon u:object_r:zero_device:s0 " + devices[i].toString() + "\n").getBytes());
-			os.flush();
-		    } 	
-		    if(g != null) {
-			log_msg("setting module param for " + g.toString());
-			os.write(("echo 1 > " + g.toString() + "\n").getBytes());
-			os.flush();
-		    } else log_msg("no perf_mode module param to set");		
-	            os.write(("exit\n").getBytes());
-	            os.flush();
-		    log_msg("waiting for process to exit");
-	            process.waitFor();
-		    log_msg("checking results");	
-		    File f = new File("/dev/snd/controlC0");
-		    if(f.canRead() && f.canWrite()) {
-	            	result = true;
-			log_msg("control device readable/writable");
-		    } else log_err("control device not readable or writable");	
-		    f = new File("/dev/snd/pcmC0D0p");
-		    if(f.canRead() && f.canWrite()) log_msg("first device readable/writable too");
-		    else log_err("first device not readable or writable");	
-	        } catch (IOException e) {
-			log_err("got IOException: " + e.toString());
-	        } catch (InterruptedException e) {
-			log_err("got InterruptedException: " + e.toString());
-	        } finally {
-	            if (process != null) {
-	                process.destroy();
-	            }
-	            try {
-	                if (os != null) {
-	                    os.close();
-	                }
-	            } catch (IOException e) {
-	            }
-	        }
-		log_msg("setPermissions exit: returning " + result);
-            return result;
-    }
 		
 	@Override
 	public void onDestroy() {
@@ -929,6 +861,7 @@ public class AlsaPlayerSrv extends Service {
 
 	public synchronized static boolean checkSetDevicePermissions(int card, int device) {
 
+		log_msg("checkSetDevicePermissions entry");
 		boolean okay;
 
 		// Setup control device first: it's needed for isOffloadDevice() call
@@ -951,11 +884,13 @@ public class AlsaPlayerSrv extends Service {
 				okay = dev.canRead() && dev.canWrite();
 				if(!okay) {
 					log_msg("Failed to setup " + devpath);
+					log_msg("checkSetDevicePermissions exit");
 					return false;
 				} 
 				log_msg("Device " + devpath + " prepared" );
 			} catch (Exception e) {
 	                        log_err("exception while setting control device permissions: " + e.toString()); 
+				log_msg("checkSetDevicePermissions exit");
         	                return false; 
 			}
 		} else log_msg("No need to prepare " + devpath);
@@ -973,6 +908,7 @@ public class AlsaPlayerSrv extends Service {
 
 		if(dev.canRead() && dev.canWrite()) {
 			log_msg("No need to prepare " + devpath);
+			log_msg("checkSetDevicePermissions exit");
 			return true;
 		}
 		try {	
@@ -984,6 +920,7 @@ public class AlsaPlayerSrv extends Service {
 	
 		} catch (Exception e) {
 			log_err("exception while setting audio device permissions: " + e.toString());
+			log_msg("checkSetDevicePermissions exit");
 			return false;
 		}
 		dev = new File(devpath);
@@ -991,24 +928,26 @@ public class AlsaPlayerSrv extends Service {
 
 		if(!okay) log_msg("Failed to prepare " + devpath);
 		else log_msg("Device " + devpath + " prepared");
-
+		log_msg("checkSetDevicePermissions exit");
 		return okay;
 	}
 
-	public static String [] getDevices() {
+	public synchronized static String [] getDevices() {
+
+	    log_msg("getDevices entry");
 
 	    int card = 0;
 
 	    if(suShell == null) suShell = (new Shell.Builder()).useSU().open();
 
 	    /* make sure that controls for all currently connected devices are prepared */
-	    log_msg("getDevices entry");
 	    while(true) {	
 		String devpath = "/dev/snd/controlC" + card;
 		File ctl = new File(devpath);
 		if(!ctl.exists()){
 		    if(card == 0) {
 			log_err("no mixer for first card, exiting");
+	    		log_msg("getDevices exit");
 			return null;
 		    }	 
 		    break;
@@ -1023,11 +962,169 @@ public class AlsaPlayerSrv extends Service {
 			suShell.waitForIdle();
 		} catch(Exception e) {
 		    log_err("exception in getDevices");
+	    	    log_msg("getDevices exit");
 		    return null;	
 		}
 	    }
 	    log_msg("getDevices: premissions set for " + card + (card == 1 ? " card" : " cards"));
+	    log_msg("getDevices exit");
 	    return getAlsaDevices();
 	}
+
+
+	public synchronized static boolean setPermissions(boolean perf_mode) {
+
+	    log_msg("setPermissions entry");
+
+	    boolean result = false;
+	    File g = null;
+
+		if(perf_mode) {
+		    g = new File("/sys/module/snd_soc_wcd9330/parameters/high_perf_mode");
+		    if(!g.exists()) {
+		    	g = new File("/sys/module/snd_soc_wcd9320/parameters/high_perf_mode");
+			if(!g.exists()) g = null;
+		    }
+		}	 	
+
+		if(suShell == null) suShell = (new Shell.Builder()).useSU().open();
+
+	        try {
+		    	log_msg("setting selinux to permissive mode & /dev/snd permissions");	
+			if(g != null) {
+			    suShell.addCommand(new String[] {
+	            		"/system/bin/setenforce 0",
+		    		"/system/bin/chmod 0777 /dev/snd",
+				"/system/bin/chcon u:object_r:device:s0 /dev/snd",
+				"echo 1 > " + g.toString()
+			    });
+			} else {
+			    suShell.addCommand(new String[] {
+	            		"/system/bin/setenforce 0",
+		    		"/system/bin/chmod 0777 /dev/snd",
+				"/system/bin/chcon u:object_r:device:s0 /dev/snd"
+			    });
+			}
+			suShell.waitForIdle();
+
+			log_msg("setting devices permissions/context");	
+			File [] devices = (new File("/dev/snd")).listFiles();
+
+		 	if(devices != null) {
+			    List<String> commands = new ArrayList<String> (); 	
+			    for(int i = 0; i < devices.length; i++) {
+				commands.add("/system/bin/chmod 0666 " + devices[i].toString());
+				commands.add("/system/bin/chcon u:object_r:zero_device:s0 " + devices[i].toString());
+			    }
+			    suShell.addCommand(commands);
+			} else log_err("failed to read /dev/snd now");
+
+			suShell.waitForIdle();
+
+			log_msg("checking results");	
+			File f = new File("/dev/snd/controlC0");
+			if(f.canRead() && f.canWrite()) {
+			      	result = true;
+				log_msg("control device readable/writable");
+			} else log_err("control device not readable or writable");	
+			f = new File("/dev/snd/pcmC0D0p");
+			if(f.canRead() && f.canWrite()) log_msg("first device readable/writable too");
+			else log_err("first device not readable or writable");	
+	        } catch (Exception e) {
+			log_err("got exception: " + e.toString());
+	        }
+		log_msg("setPermissions exit: returning " + result);
+            return result;
+	}
+
+/*
+	public synchronized static boolean setPermissions(boolean perf_mode) {
+	    boolean result = false;
+	    java.lang.Process process = null;
+	    DataOutputStream os = null;
+	    File g = null;
+		log_msg("setPermissions entry");
+		if(perf_mode) {
+		    g = new File("/sys/module/snd_soc_wcd9330/parameters/high_perf_mode");
+		    if(!g.exists()) {
+		    	g = new File("/sys/module/snd_soc_wcd9320/parameters/high_perf_mode");
+			if(!g.exists()) g = null;
+		    }
+		}	 	
+
+	        try {
+        	    process = new ProcessBuilder("su").redirectErrorStream(true).start();
+	            os = new DataOutputStream(process.getOutputStream());
+
+		    log_msg("setting selinux to permissive mode");	
+	            os.write(("/system/bin/setenforce 0\n").getBytes());
+	            os.flush();
+
+		    log_msg("setting /dev/snd permissions/context");	
+		    os.write(("/system/bin/chmod 0777 /dev/snd\n").getBytes());
+		    os.flush();	
+                    os.write(("/system/bin/chcon u:object_r:device:s0 /dev/snd\n").getBytes());
+		    os.flush();
+		    if(g != null) {
+			log_msg("setting module param for " + g.toString());
+			os.write(("echo 1 > " + g.toString() + "\n").getBytes());
+			os.flush();
+		    } else log_msg("no perf_mode module param to set");		
+
+	            os.write(("exit\n").getBytes());
+	            os.flush();
+		    log_msg("waiting for process to exit");
+	            process.waitFor();
+
+		    process.destroy();	
+		    os.close();		
+			
+        	    process = new ProcessBuilder("su").redirectErrorStream(true).start();
+	            os = new DataOutputStream(process.getOutputStream());
+
+		    log_msg("setting devices permissions/context");	
+		    File [] devices = (new File("/dev/snd")).listFiles();
+		    if(devices != null) {
+			for(int i = 0; i < devices.length; i++) {
+			//	log_msg("device " + i + " " + devices[i]);
+			    	os.write(("/system/bin/chmod 0666 " + devices[i].toString() + "\n").getBytes());
+				os.flush();
+				os.write(("/system/bin/chcon u:object_r:zero_device:s0 " + devices[i].toString() + "\n").getBytes());
+				os.flush();
+			}
+		    } else log_err("failed to read /dev/snd now");
+
+	            os.write(("exit\n").getBytes());
+	            os.flush();
+		    log_msg("waiting for process to exit");
+	            process.waitFor();
+
+
+		    log_msg("checking results");	
+		    File f = new File("/dev/snd/controlC0");
+		    if(f.canRead() && f.canWrite()) {
+	            	result = true;
+			log_msg("control device readable/writable");
+		    } else log_err("control device not readable or writable");	
+		    f = new File("/dev/snd/pcmC0D0p");
+		    if(f.canRead() && f.canWrite()) log_msg("first device readable/writable too");
+		    else log_err("first device not readable or writable");	
+	        } catch (Exception e) {
+			log_err("got exception: " + e.toString());
+	        } finally {
+	            if (process != null) {
+	                process.destroy();
+	            }
+	            try {
+	                if (os != null) {
+	                    os.close();
+	                }
+	            } catch (IOException e) {
+	            }
+	        }
+		log_msg("setPermissions exit: returning " + result);
+            return result;
+	} 
+*/
 
 }
