@@ -163,7 +163,7 @@
   </card>
 
 
-  <card name="E-MU 0404 | USB">
+  <card name="E-MU 0404">
      <!-- S24_3LE playback only -->
     <device id="0" mmap="1">
 	<path name="settings0"/>
@@ -189,5 +189,16 @@
     </path>
   </card>
 
+  <card name="DAC-E18">  <!-- FiiO USB DAC-E18 -->
+    <device id="0" mmap="1">
+	<path name="start"> 
+	    <ctl name="PCM Playback Switch" value="1"/> 
+	    <ctl name="PCM Playback Volume" value="110 110"/>
+	</path>
+	<path name="stop"> 
+	    <ctl name="PCM Playback Switch" value="0"/> 
+	</path>
+    </device>
+  </card>
 </cards>
 

@@ -115,14 +115,13 @@ int audio_stop(playback_ctx *ctx)
 	return 0;
     }
     log_info("forced stop");	
-    ctx->state = STATE_STOPPING;
+    ctx->state = alsa_is_mmapped(ctx) ? STATE_STOPPED : STATE_STOPPING;
 
     if(in_state == STATE_PAUSED || in_state == STATE_PAUSING) {
 	log_info("context was paused brefore");
 	pthread_cond_broadcast(&ctx->cond_resumed);
     }	 		
     if(ctx->buff) buffer_stop(ctx->buff, 1);
-
 //    pthread_mutex_lock(&ctx->stop_mutex);	
 //    pthread_cond_wait(&ctx->cond_stopped, &ctx->stop_mutex);
 //    pthread_mutex_unlock(&ctx->stop_mutex);

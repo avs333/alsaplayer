@@ -306,7 +306,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		    hset = 1;	
 		}
 		if(priv->nv_start) {
-		    log_info("start/stop controls found");	
+		    log_info("start/stop controls found");
 		    for(nv1 = priv->nv_start; nv1->next; nv1 = nv1->next) ;	/* set nv1 -> tail of nv_start */
 		    priv->nv_stop = xml_mixp_find_control_set(ctx->xml_mixp, hset ? "headset" : "headphones"); /* the same again */
 		    for(nv2 = priv->nv_stop; nv2->next; nv2 = nv2->next) 	/* reset to default values & set nv2 -> tail */
