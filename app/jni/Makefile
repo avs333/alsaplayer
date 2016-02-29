@@ -39,7 +39,7 @@ else
 LDFLAGS += -lpthread
 endif
 
-SRC =	buffer.c alsa.c alsa_offload.c main.c linux_main.c wav_main.c	\
+SRC =	buffer.c alsa.c alsa_offload.c main.c linux_main.c wav_main.c alac_main.c	\
 	compr.c compr0101.c compr0102.c					\
 	flac/main.c  flac/decoder.c					\
 	ape/entropy.c  ape/filter-pre.c  ape/parser.c   ape/decoder.c  ape/main.c  ape/predictor.c	

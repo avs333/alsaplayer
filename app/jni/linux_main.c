@@ -121,6 +121,7 @@ int main(int argc, char **argv)
 	signal(SIGUSR1, pause_resume);	
 	signal(SIGUSR2, pause_resume);	
 
+
 	while ((opt = getopt(argc, argv, "c:d:s:t:qix:p:w")) != -1) {
 	    switch (opt) {
 		case 'c':
@@ -174,9 +175,11 @@ int main(int argc, char **argv)
 	    quiet_run = 1; 
 	    return test_device(card, device);
 	}
-
-	if(optind >= argc) return usage(argv[0]);
-
+	if(optind >= argc) {
+	   printf("No file specified\n");
+	   return usage(argv[0]);
+	}
+again:
 	args->file = strdup(argv[optind]);
 	args->ftype = -1;
 	c = strrchr(args->file, '.');
@@ -186,6 +189,9 @@ int main(int argc, char **argv)
 		if(args->track) printf("not a cue file, track specification ignored\n");
 	    } else if(strcmp(c, ".ape") == 0) {
 		args->ftype = FORMAT_APE;	
+		if(args->track) printf("not a cue file, track specification ignored\n");
+	    } else if(strcmp(c, ".m4a") == 0) {
+		args->ftype = FORMAT_ALAC;	
 		if(args->track) printf("not a cue file, track specification ignored\n");
 	    } else if(strcmp(c, ".wav") == 0) {
 		args->ftype = FORMAT_WAV;	
@@ -216,6 +222,9 @@ int main(int argc, char **argv)
 	}
 	audio_exit(0, 0, ctx);
 	if(args->file) free(args->file);
+
+	optind++;
+        if(optind < argc) goto again;
 
     return 0;
 }

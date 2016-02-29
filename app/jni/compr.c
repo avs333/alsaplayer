@@ -19,6 +19,9 @@ int _FN(compr_fmt_check) (int fmt, uint64_t codecs_mask)
 	case FORMAT_APE:	
 	    if(codecs_mask & (1ULL << SND_AUDIOCODEC_APE)) return 0;
 	    break;
+	case FORMAT_ALAC:	
+	    if(codecs_mask & (1ULL << SND_AUDIOCODEC_ALAC)) return 0;
+	    break;
 #endif	
 	default:
 	    break;	
@@ -75,6 +78,9 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
 {
     struct snd_compr_params params;
     int k;
+#if _COMPR_PROTO_  ==  0102
+    struct snd_dec_alac *alac_cfg;
+#endif
 
 #if defined(ANDROID) || defined(ANDLINUX)
 #define PROP_VALUE_MAX  92
@@ -137,6 +143,23 @@ int _FN(compr_set_hw_params) (playback_ctx *ctx,
 		params.codec.options.ape.num_channels = ctx->channels;
 		params.codec.options.ape.sample_rate = ctx->samplerate;
 		params.codec.options.ape.seek_table_present = 0;
+		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
+		break;
+	    case FORMAT_ALAC:
+		alac_cfg = (struct snd_dec_alac *) ctx->alac_cfg;
+		params.codec.id = SND_AUDIOCODEC_ALAC;
+		params.codec.options.alac.frame_length = alac_cfg->frame_length;
+		params.codec.options.alac.compatible_version = alac_cfg->compatible_version;
+		params.codec.options.alac.bit_depth = alac_cfg->bit_depth;
+		params.codec.options.alac.pb = alac_cfg->pb;
+		params.codec.options.alac.mb = alac_cfg->mb;
+		params.codec.options.alac.kb = alac_cfg->kb;
+		params.codec.options.alac.num_channels = alac_cfg->num_channels;
+		params.codec.options.alac.max_run = alac_cfg->max_run;
+		params.codec.options.alac.max_frame_bytes = alac_cfg->max_frame_bytes;
+		params.codec.options.alac.avg_bit_rate = alac_cfg->avg_bit_rate;
+		params.codec.options.alac.sample_rate = alac_cfg->sample_rate;
+		params.codec.options.alac.channel_layout_tag =  alac_cfg->channel_layout_tag;
 		params.codec.format = ctx->bps == 24 ? SNDRV_PCM_FORMAT_S24_LE : SNDRV_PCM_FORMAT_S16_LE;
 		break;
 #endif

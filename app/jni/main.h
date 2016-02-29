@@ -52,7 +52,7 @@ struct pcm_buffer_t;
 #define FORMAT_FLAC	1
 #define FORMAT_APE	2
 #define FORMAT_MP3	3	/* offload playback only */
-
+#define FORMAT_ALAC	4	/* offload playback only */
 
 enum playback_state {
     STATE_STOPPED = 0,	/* init state */
@@ -86,6 +86,7 @@ typedef struct {
    unsigned short ape_ver, ape_compr;	/* ape-specific stuff */
    unsigned int ape_fmt, ape_bpf;
    unsigned int ape_fin, ape_tot;
+   void *alac_cfg;
 } playback_ctx;
 
 /* main.c */
@@ -158,6 +159,9 @@ extern int ape_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, 
 
 /* wav_main.c */
 extern int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
+
+/* alac_main.c */
+extern int alac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
 
 /* tinyxml2/xmlparser.cpp */
 struct nvset {

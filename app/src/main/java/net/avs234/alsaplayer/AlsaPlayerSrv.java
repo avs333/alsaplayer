@@ -104,6 +104,7 @@ public class AlsaPlayerSrv extends Service {
 	public static final int FORMAT_FLAC = 1;
 	public static final int FORMAT_APE = 2;
 	public static final int FORMAT_MP3 = 3;
+	public static final int FORMAT_ALAC = 4;
 	
 	// The lock to acquire so as the device won't go to sleep when we'are playing.  
 	private PowerManager.WakeLock wakeLock = null;
@@ -467,6 +468,11 @@ public class AlsaPlayerSrv extends Service {
 							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
 							if(ctx == 0) k = 1;
 							else k = audioPlay(ctx, files[cur_pos], FORMAT_WAV, times[cur_pos]+cur_start);
+						} else if(files[cur_pos].endsWith(".m4a") || files[cur_pos].endsWith(".M4A")) {
+							cur_mode = MODE_ALSA;
+							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
+							if(ctx == 0) k = 1;
+							else k = audioPlay(ctx, files[cur_pos], FORMAT_ALAC, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".mp3") || files[cur_pos].endsWith(".MP3")) {
 							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
 							boolean offload = (ctx != 0) ? inOffloadMode(ctx) : false;

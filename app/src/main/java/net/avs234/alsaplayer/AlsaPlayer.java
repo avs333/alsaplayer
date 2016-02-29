@@ -1586,7 +1586,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	public static final String bmark_ext = ".bmark";
     	
    	// Mp3support
-    	public static final String[] audioExts = { ".flac", ".FLAC", ".ape", ".APE", 
+    	public static final String[] audioExts = { ".flac", ".FLAC", ".ape", ".APE", ".m4a", 
     		".wav", ".WAV", ".mp3", ".MP3", ".wma", ".WMA", ".ogg", ".OGG", ".3gpp", ".3GPP", ".aac", ".AAC" };
     	public static final String[] plistExts = { plist_ext, ".m3u", ".M3U", ".pls", ".PLS" };
     	
@@ -1625,6 +1625,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		else if(hasPlistExt(f)) return 3;
     		else if(s.endsWith(".flac") || s.endsWith(".FLAC")) return 5;	// not using hasAudioExt to
     		else if(s.endsWith(".ape") || s.endsWith(".APE")) return 4;	// not using hasAudioExt to
+		else if(s.endsWith(".m4a")) return 5;
  		// Mp3support
     		else if(s.endsWith(".wav") || s.endsWith(".WAV")) return 6;
     		else if(s.endsWith(".mp3") || s.endsWith(".MP3")) return 7;

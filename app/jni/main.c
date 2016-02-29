@@ -529,6 +529,9 @@ extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfil
 	    case FORMAT_WAV:
 		ret = wav_play(env, obj, ctx, jfile, start); 	
 		break;
+	    case FORMAT_ALAC:
+		ret = alac_play(env, obj, ctx, jfile, start); 	
+		break;
 	    default:
 		ret = LIBLOSSLESS_ERR_FORMAT;
 		break;
