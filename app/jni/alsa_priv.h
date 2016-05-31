@@ -11,7 +11,7 @@ typedef struct _alsa_priv {
     char *devinfo;
     void *xml_dev;				/* device xml data handle */
     int is_offload;				/* compressed stream playback */
-    int is_mmapped;				/* mmapped playback, not implemented yet */
+    int is_mmapped;				/* mmapped playback */
     uint32_t supp_formats_mask;			/* as per mask field of supp_formats struct */
     uint32_t supp_rates_mask;			/* as per mask field of supp_rates struct */
     uint64_t supp_codecs_mask;			/* for offload playback */

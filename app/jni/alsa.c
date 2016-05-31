@@ -1014,7 +1014,7 @@ bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op)
     alsa_priv *priv;
     char tmp[128];
     struct nvset *nvd, *nva, *nv;
-    int  vola, vold;
+    int  vola, vold, volt;
 	if(!ctx || !ctx->alsa_priv) return false;	
 	priv = (alsa_priv *) ctx->alsa_priv;
 	nvd = priv->nv_vol_digital[priv->cur_fmt];
@@ -1039,21 +1039,29 @@ bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op)
 		break;	
 	    case VOL_INCREASE:
 		if(nvd && nvd->max > nvd->min) {
-		    vold += (VOL_STEP * (nvd->max - nvd->min))/100;
+		    volt = vold + (VOL_STEP * (nvd->max - nvd->min))/100;
+		    if(volt == vold) vold++;
+		    else vold = volt;	
 		    if(vold > nvd->max) vold = nvd->max;
 		}
 		if(nva && nva->max > nva->min) {
-		    vola += (VOL_STEP * (nva->max - nva->min))/100;
+		    volt = vola + (VOL_STEP * (nva->max - nva->min))/100;
+		    if(volt == vola) vola++;
+		    else vola = volt;	
 		    if(vola > nva->max) vola = nva->max;
 		}
 		break;
 	    case VOL_DECREASE:
 		if(nvd && nvd->max > nvd->min) {
-		    vold -= (VOL_STEP * (nvd->max - nvd->min))/100;
+		    volt = vold - (VOL_STEP * (nvd->max - nvd->min))/100;
+		    if(volt == vold) vold--;
+		    else vold = volt;	
 		    if(vold < nvd->min) vold = nvd->min;
 		}
 		if(nva && nva->max > nva->min) {
-		    vola -= (VOL_STEP * (nva->max - nva->min))/100;
+		    volt = vola - (VOL_STEP * (nva->max - nva->min))/100;
+		    if(volt == vola) vola--;
+		    else vola = volt;	
 		    if(vola < nva->min) vola = nva->min;
 		}
 		break;
@@ -1062,12 +1070,18 @@ bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op)
 		return false;
 	}
 	if(nvd && (op == VOL_SET_CURRENT || priv->vol_digital[priv->cur_fmt] != vold)) {
-	    sprintf(tmp, "%d", vold);
+
+	    if(nvd->append) sprintf(tmp, "%d%s", vold, nvd->append);
+	    else sprintf(tmp, "%d", vold);
+
 	    for(nv = nvd; nv; nv = nv->next) nv->value = tmp; 
 	    if(set_mixer_controls(ctx, nvd)) priv->vol_digital[priv->cur_fmt] = vold;
 	}
 	if(nva && (op == VOL_SET_CURRENT || priv->vol_analog[priv->cur_fmt] != vola)) {
-	    sprintf(tmp, "%d", vola);
+
+	    if(nva->append) sprintf(tmp, "%d%s", vola, nva->append);
+	    else sprintf(tmp, "%d", vola);
+
 	    for(nv = nva; nv; nv = nv->next) nv->value = tmp; 
 	    if(set_mixer_controls(ctx, nva)) priv->vol_analog[priv->cur_fmt] = vola;
 	}

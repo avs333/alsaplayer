@@ -163,6 +163,28 @@
   </card>
 
 
+  <card name="(mt-snd-card|mtsndcard)" builtin="1">
+    <device id="0">
+	<path name="start">
+	    <ctl name="Audio_Amp_R_Switch" value="On"/>
+	    <ctl name="Audio_Amp_L_Switch" value="On"/>
+	    <ctl name="AUD_CLK_BUF_Switch" value="On"/>
+	    <ctl name="Audio IRQ1 CNT" value="1024"/>
+	</path>
+	<path name="stop">
+	    <ctl name="Audio_Amp_R_Switch" value="Off"/>
+	    <ctl name="Audio_Amp_L_Switch" value="Off"/>
+	    <ctl name="AUD_CLK_BUF_Switch" value="Off"/>
+	    <ctl name="Audio IRQ1 CNT" value="0"/>
+	</path>
+	<path name="digital_volume">
+	    <ctl name="Headset_PGAL_GAIN" value="1" min="-10" max="4" append="Db"/>
+	    <ctl name="Headset_PGAR_GAIN" value="1" min="-10" max="4" append="Db"/>
+	</path>
+    </device>
+  </card>
+
+
   <card name="E-MU 0404">
      <!-- S24_3LE playback only -->
     <device id="0" mmap="1">
@@ -189,6 +211,7 @@
     </path>
   </card>
 
+
   <card name="DAC-E18">  <!-- FiiO USB DAC-E18 -->
     <device id="0" mmap="1">
 	<path name="start"> 
@@ -200,5 +223,6 @@
 	</path>
     </device>
   </card>
+
 </cards>
 

@@ -12,6 +12,7 @@ extern "C" {
     struct nvset {
 	const char *name;
 	const char *value;
+	const char *append;
 	int min, max;
 	struct nvset *next;	
     };
@@ -202,6 +203,7 @@ struct nvset *DeviceXML::get_controls(XMLElement *e)
 	    }	
 	    nv->name = name;
 	    nv->value = value;
+	    nv->append = x->Attribute("append");
 	    nv->next = 0;
 	} else if(strcmp(x->Name(), "path") == 0) {
 	    const char *c = x->Attribute("name");

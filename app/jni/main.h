@@ -167,6 +167,7 @@ extern int alac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile,
 struct nvset {
     const char *name;
     const char *value;
+    const char *append;
     int min, max;
     struct nvset *next;
 };
