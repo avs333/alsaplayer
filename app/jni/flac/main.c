@@ -487,19 +487,20 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 
 	format = alsa_get_format(ctx);		/* format selected in alsa_start() */
 	phys_bps = format->phys_bits;
-	
-	pcmbuf = malloc(fc->channels * (phys_bps/8) * MAX_BLOCKSIZE);
-	if(!pcmbuf) {
-	    log_err("no memory");
-	    ret = LIBLOSSLESS_ERR_NOMEM;	
-	    goto done;	
+
+	if(!ctx->block_write) {	
+	    pcmbuf = malloc(fc->channels * (phys_bps/8) * MAX_BLOCKSIZE);
+	    if(!pcmbuf) {
+		log_err("no memory");
+		ret = LIBLOSSLESS_ERR_NOMEM;	
+		goto done;	
+	    }
 	}
 
 	update_track_time(env, obj, ctx->track_time);
 	gettimeofday(&tstart,0);
 
 	while(mptr < mend) {
-
 	    i = (mend - mptr < MAX_FRAMESIZE) ? mend - mptr : MAX_FRAMESIZE;
 	    if(i < MAX_FRAMESIZE && cur_map_off + cur_map_len != flen) {	/* too close to end of mapped region, but not at eof */
 		log_info("remapping");	
@@ -529,9 +530,25 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		ret = LIBLOSSLESS_ERR_DECODE;
 		goto done;
 	    }
+
 	    bsz = (fc->blocksize >> ctx->rate_dec);
 	    stride = (1 << ctx->rate_dec);	
-	    
+
+	    if(ctx->block_write) {
+		if(bsz > (ctx->block_max >> ctx->rate_dec)) {
+		    log_err("decoder returned too large buffer: size=%d (max=%d)", bsz,
+			ctx->block_max >> ctx->rate_dec); 
+		    ret = LIBLOSSLESS_ERR_DECODE;
+		    goto done;
+		}
+		pcmbuf = blk_buffer_request_decoding(ctx->blk_buff);
+		if(!pcmbuf) {
+		    log_err("request for decoding buffer failed");
+		    ret = LIBLOSSLESS_ERR_DECODE;
+		    goto done;
+		}
+	    }
+ 
 	    switch(format->fmt) {
 
 		case SNDRV_PCM_FORMAT_S32_LE:
@@ -589,15 +606,23 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		    ret = LIBLOSSLESS_ERR_INIT;
 		    goto done; 	
 	     }
+	     if(ctx->block_write) {	
+		if(bsz < (ctx->block_min >> ctx->rate_dec)) {
+		    log_info("short buffer, should be eof");
+		    memset(pcmbuf + bsz * fc->channels * (phys_bps/8), 0, 
+			((ctx->block_min >> ctx->rate_dec) - bsz) * fc->channels * (phys_bps/8) );	
+		}
+		blk_buffer_commit_decoding(ctx->blk_buff);
+	     } else {	
+		if(!alsa_is_mmapped(ctx)) bsz *= fc->channels * (phys_bps/8); /* need bytes rather than frames */
+		i = audio_write(ctx, pcmbuf, bsz);
+		if(i < 0) {
+		    if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
+		    log_info("exiting, alsa_error=%d", ctx->alsa_error);
+		    break;
+		}
+	    }	
 
-	     if(!alsa_is_mmapped(ctx)) bsz *= fc->channels * (phys_bps/8); /* need bytes rather than frames */
-		
-	     i = audio_write(ctx, pcmbuf, bsz);
-	     if(i < 0) {
-		if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
-		log_info("exiting, alsa_error=%d", ctx->alsa_error);
-		break;
-	    }
 
 	    mptr += fc->gb.index/8; /* step over the bytes consumed by flac_decode_frame() */	
 
@@ -605,7 +630,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 
     done:
 	if(fc) flac_exit(fc);
-	if(pcmbuf) free(pcmbuf);
+	if(!ctx->block_write && pcmbuf) free(pcmbuf);
 	if(fd >= 0) close(fd);
 	if(mm != MAP_FAILED) munmap(mm, cur_map_len);
 	if(ret == 0) {

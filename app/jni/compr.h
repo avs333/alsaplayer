@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <pthread.h>
 #include <limits.h>
 #ifdef ANDROID

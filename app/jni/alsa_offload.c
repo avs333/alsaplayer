@@ -272,7 +272,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    if(state != STATE_PLAYING && state != STATE_STOPPING)  {
 		log_info("gather I should stop");
 		break;				
-	    }	
+	    }
 	    if(write_buff) {
 		convert24_3le_le(mptr, write_buff, k);
 		write_size = (4 * k)/3;

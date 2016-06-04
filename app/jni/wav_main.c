@@ -402,6 +402,7 @@ int wav_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		 	else k = alsa_write(ctx, mptr, i/b2f); 
 		    }
                     break;
+                case STATE_INTR:
 		case STATE_STOPPED:
                     log_info("stopped before write");
 		    goto done;

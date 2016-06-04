@@ -50,6 +50,7 @@ avoided by writing the decoded data one sample at a time.
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/select.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -179,16 +180,6 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 
 	lseek(fd, 0, SEEK_SET);
 
-	decoded[0] = (int32_t *) malloc(BLOCKS_PER_LOOP * sizeof(int32_t));
-	decoded[1] = (int32_t *) malloc(BLOCKS_PER_LOOP * sizeof(int32_t));
-	pcmbuf = (uint8_t *) malloc(2 * BLOCKS_PER_LOOP * sizeof(int32_t));
-
-	if(!pcmbuf || !decoded[0] || !decoded[1]) {
-	    log_err("no memory"); 	
-	    ret = LIBLOSSLESS_ERR_NOMEM;
-	    goto done;	  
-	}
-
 	/* Read the file headers to populate the ape_ctx struct */
 
 	if(read(fd, inbuffer, INPUT_CHUNKSIZE) != INPUT_CHUNKSIZE) {
@@ -258,8 +249,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	ctx->bps = ape_ctx.bps;
 	ctx->written = 0;
  	ctx->track_time = ape_ctx.totalsamples/ape_ctx.samplerate;
-	ctx->block_max = ctx->block_min = 4096;
-/*	ctx->block_max = ctx->block_min = 2048; */
+	ctx->block_max = ctx->block_min = BLOCKS_PER_LOOP;
 
 	if(alsa_is_offload(ctx)) {
 	    ctx->ape_ver = ape_ctx.fileversion;
@@ -302,11 +292,27 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
         update_track_time(env,obj,ctx->track_time);
 
 	bytes_to_write = 0;
+	framesperblock = alsa_get_period_size(ctx);
+	bytesperblock = ctx->channels * (format->phys_bits/8) * framesperblock;
+/*	if(framesperblock == BLOCKS_PER_LOOP) log_info("Good."); */
 
-	ctx->block_max = alsa_get_period_size(ctx);
+	if(!ctx->block_write) {
+	    if(framesperblock < ctx->block_max) framesperblock = ctx->block_max;
+	    pcmbuf = (uint8_t *) malloc(2 * framesperblock * sizeof(int32_t));
+	    if(!pcmbuf) {
+		log_err("no memory"); 	
+		ret = LIBLOSSLESS_ERR_NOMEM;
+		goto done;	  
+	    }
+	}
 
-	bytesperblock = ctx->channels * (format->phys_bits/8) * ctx->block_max;
-	framesperblock = ctx->block_max;
+	decoded[0] = (int32_t *) malloc(framesperblock * sizeof(int32_t));
+	decoded[1] = (int32_t *) malloc(framesperblock * sizeof(int32_t));
+	if(!decoded[0] || !decoded[1]) {
+	    log_err("no memory"); 	
+	    ret = LIBLOSSLESS_ERR_NOMEM;
+	    goto done;	  
+	}
 
 	/* Initialise the buffer */
 	bytesinbuffer = ape_read(inbuffer, INPUT_CHUNKSIZE);
@@ -315,6 +321,8 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	    ret = LIBLOSSLESS_ERR_IO_READ;
 	    goto done;
 	}	
+
+/*	log_info("%d %d %d %d %d", bytesperblock, framesperblock, BLOCKS_PER_LOOP, ctx->block_min, ctx->block_max); */
 
 	/* The main decoding loop - we decode the frames a small chunk at a time */
 	while(currentframe < ape_ctx.totalframes) {
@@ -337,13 +345,14 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 		log_err("read error");
 		ret = LIBLOSSLESS_ERR_IO_READ;
 		goto done;
-	    }	
+	    }
 	    bytesinbuffer += n;
 
 	    /* Decode the frame a chunk at a time */
 	    while(nblocks > 0) {
 
-		blockstodecode = MIN(BLOCKS_PER_LOOP, nblocks);
+
+		blockstodecode = MIN(framesperblock, nblocks);
 
 		if(decode_chunk(&ape_ctx, inbuffer, &firstbyte,
 			&bytesconsumed, decoded[0], decoded[1], blockstodecode) < 0)  {
@@ -370,10 +379,29 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 		    }
 		    nblocks -= samplestoskip;
 		    blockstodecode -= samplestoskip;
+
+		    /* Tradeoff for using block_write: we need period size from the start */	
+		    if(ctx->block_write) {
+			samplestoskip = 0;
+			continue;	
+		    }
 		}
 
-		/* Convert the output samples to WAV format and write to output file */
-		p = pcmbuf + bytes_to_write;
+		/* Convert the output samples to PCM format and write to output file */
+
+		if(ctx->block_write) {
+		    p = blk_buffer_request_decoding(ctx->blk_buff);
+		    if(!p) {
+			log_err("request for decoding buffer failed");
+			ret = LIBLOSSLESS_ERR_DECODE;
+			goto done;
+		    }
+		    if(blockstodecode > framesperblock) {
+			log_err("too large buffer from decoder: %d > %d", blockstodecode, framesperblock);
+			ret = LIBLOSSLESS_ERR_DECODE;
+			goto done;
+		    }	
+		} else p = pcmbuf + bytes_to_write;
 
 		switch(format->fmt) {
 
@@ -410,23 +438,32 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 
 		if(samplestoskip) samplestoskip = 0;
 
-		n = p - pcmbuf;
+		if(ctx->block_write) {
 
-		if(n >= bytesperblock) {
-		    p = pcmbuf;
-		    do {
-			i = audio_write(ctx, p, alsa_is_mmapped(ctx) ? framesperblock :  bytesperblock);
-			if(i < 0) {
-			    if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
-			    goto done;
-			}
-			n -= bytesperblock;
-			p += bytesperblock;
-		    } while(n >= bytesperblock);
-		    memmove(pcmbuf,p,n);
+		    if(blockstodecode < framesperblock) {
+			log_info("short buffer, should be eof");
+			memset(pcmbuf + blockstodecode * ctx->channels * (format->phys_bits/8), 0,
+			    (framesperblock - blockstodecode) * ctx->channels * (format->phys_bits/8));
+		    }
+		    blk_buffer_commit_decoding(ctx->blk_buff);
+
+		} else {
+		    n = p - pcmbuf;
+		    if(n >= bytesperblock) {
+			p = pcmbuf;
+			do {
+			    i = audio_write(ctx, p, alsa_is_mmapped(ctx) ? framesperblock :  bytesperblock);
+			    if(i < 0) {
+				if(ctx->alsa_error) ret = LIBLOSSLESS_ERR_IO_WRITE;
+				goto done;
+			    }
+			    n -= bytesperblock;
+			    p += bytesperblock;
+			} while(n >= bytesperblock);
+			memmove(pcmbuf,p,n);
+		    }
+		    bytes_to_write = n;
 		}
-
-		bytes_to_write = n;
 
 		/* Update the buffer */
 		memmove(inbuffer, inbuffer + bytesconsumed, bytesinbuffer - bytesconsumed);
@@ -452,7 +489,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
     done:
 	if(decoded[0]) free(decoded[0]);
 	if(decoded[1]) free(decoded[1]);
-	if(pcmbuf) free(pcmbuf);
+	if(!ctx->block_write && pcmbuf) free(pcmbuf);
 #ifdef ANDROID
 	if(file) (*env)->ReleaseStringUTFChars(env,jfile,file);
 #endif

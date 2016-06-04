@@ -34,6 +34,7 @@ typedef struct _alsa_priv {
     int  cur_fmt;				/* index into nv_fmt[], for speedup */
     int  vol_analog[MAX_FMTS];			/* current analog/digital volumes; these are set */	
     int  vol_digital[MAX_FMTS];			/* to defaults when the device is switched */
+    struct perset *perset;
 } alsa_priv;
 
 extern int alsa_get_rate(int rate);		/* SNDRV_PCM_RATE corresponding to numeric value */
@@ -44,7 +45,6 @@ typedef enum {
 } vol_ctl_t;
 
 extern bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op);
-
 
 #endif
 

@@ -40,9 +40,7 @@ struct call_args {
 
 void bye(int sig) 
 {
-    printf("exiting on signal %d\n", sig);
-    if(ctx) audio_exit(0, 0, ctx);	    
-    exit(0);
+    ((playback_ctx *)ctx)->state = STATE_INTR;
 }
 
 static int usage(char *prog) 
@@ -58,6 +56,8 @@ static int usage(char *prog)
 		 "-s\tspecify start point of playback in a file\n"
 		 "-t\tspecify cue file track (audio file defined in cue must be in the same dir)\n"
 		 "-p\tforce number and size of periods (in frames) or fragments (in bytes)\n"
+		 "-m\tforce memory-mapped playback\n"
+		 "-r\tforce using ring buffer instead of block buffer\n"
 		 "-q\tquiet mode, suppress extra info\n"
 		 "-i\ttest the selected device and show its information\n"
 		 "-w\tshow stream time\n"
@@ -122,7 +122,7 @@ int main(int argc, char **argv)
 	signal(SIGUSR2, pause_resume);	
 
 
-	while ((opt = getopt(argc, argv, "c:d:s:t:qix:p:w")) != -1) {
+	while ((opt = getopt(argc, argv, "c:d:s:t:qix:p:wmr")) != -1) {
 	    switch (opt) {
 		case 'c':
 		    card = atoi(optarg);
@@ -148,6 +148,9 @@ int main(int argc, char **argv)
 		case 't':
 		    args->track = atoi(optarg);
 		    break; 
+		case 'm':
+		    force_mmap = 1;
+		    break;	
 		case 'w':
 		    need_show_time = 1;
 		    break;	
@@ -156,6 +159,9 @@ int main(int argc, char **argv)
 		    break;
 		case 'i':
 		    info = 1;
+		    break;
+		case 'r':
+		    force_ring_buffer = 1;
 		    break;
 		case 'x':
 		    ext_cards_file = optarg;

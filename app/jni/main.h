@@ -7,17 +7,18 @@ extern "C" {
 
 #ifdef ANDROID
 #ifndef log_info
-#if 1
 #define log_info(fmt, args...)  __android_log_print(ANDROID_LOG_INFO, "liblossless", "%d [%s] " fmt, gettid(), __func__, ##args)
-#else
-#define log_info(...)
-#endif
 #define log_err(fmt, args...)   __android_log_print(ANDROID_LOG_ERROR, "liblossless", "%d [%s] " fmt, gettid(),  __func__, ##args)
 #endif
 #else
 extern int quiet_run;
-#define log_info(fmt, args...) do { if(!quiet_run) printf("[%s] " fmt "\n", __func__, ##args); } while(0)
-#define log_err(fmt, args...)  do { printf("[%s] " fmt "\n", __func__, ##args); } while(0)
+#define log_info(fmt, args...) do {	\
+  struct timeval tvl; gettimeofday(&tvl,0); if(!quiet_run) printf("%04d.%03d [%s] " fmt "\n", \
+   (int)(tvl.tv_sec & 0xfff), (int)(tvl.tv_usec/1000),	\
+ __func__, ##args); } while(0)
+#define log_err(fmt, args...)  do {	\
+  struct timeval tvl; gettimeofday(&tvl,0); printf("%04d.%03d [%s] " fmt "\n", \
+   (int)(tvl.tv_sec & 0xfff), (int)(tvl.tv_usec/1000), __func__, ##args); } while(0)
 #endif
 
 #ifndef timeradd
@@ -36,7 +37,8 @@ extern int quiet_run;
 
 typedef int snd_pcm_format_t;
 
-typedef struct pcm_buffer_t pcm_buffer;	/* private struct pcm_buffer_t is defined in buffer.c */
+typedef struct pcm_buffer_t pcm_buffer;		/* private struct pcm_buffer_t is defined in buffer.c */
+typedef struct blk_buffer_t blk_buffer;
 
 typedef struct _playback_format_t {
     snd_pcm_format_t fmt;
@@ -59,7 +61,8 @@ enum playback_state {
     STATE_PLAYING,
     STATE_PAUSED,
     STATE_STOPPING,
-    STATE_PAUSING 	
+    STATE_PAUSING,
+    STATE_INTR		/* linux only */	 	
 };
  
 typedef struct {
@@ -75,14 +78,17 @@ typedef struct {
    int  written;			/* set by audio thread */	
    void *xml_mixp;			/* descriptor for xml file with device controls ("/system/etc/mixer_paths.xml" or similar) */
    void *ctls;				/* cached mixer controls for current card */
-   pthread_mutex_t mutex, stop_mutex;
+   pthread_mutex_t mutex;
    pthread_t audio_thread;
-   pthread_cond_t cond_stopped;
    pthread_cond_t cond_resumed;
    pthread_cond_t cond_paused;
-   struct pcm_buffer_t *buff; 
+/* pthread_mutex_t stop_mutex; 
+   pthread_cond_t cond_stopped; */
+   struct pcm_buffer_t *pcm_buff;
+   struct blk_buffer_t *blk_buff;
    void *alsa_priv;
    int  alsa_error;			/* set on error exit from alsa thread  */
+   int block_write;			/* alsa has agreed to select decoder block size for period size: use blk_buffer */
    unsigned short ape_ver, ape_compr;	/* ape-specific stuff */
    unsigned int ape_fmt, ape_bpf;
    unsigned int ape_fin, ape_tot;
@@ -134,6 +140,8 @@ extern char *alsa_current_device_info(playback_ctx *ctx);
 #ifndef ANDROID
 extern char *ext_cards_file;
 extern int forced_chunks, forced_chunk_size;
+extern int force_mmap;
+extern int force_ring_buffer;
 #endif
 
 /* alsa_offload.c */
@@ -144,11 +152,20 @@ extern int alsa_time_pos_offload(playback_ctx *ctx);
 extern int mp3_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
 
 /* buffer.c */
-extern pcm_buffer *buffer_create(int size);
-extern int buffer_put(pcm_buffer *buff, void *src, int bytes);
-extern int buffer_get(pcm_buffer *buff, void *dst, int bytes);
-extern void buffer_stop(pcm_buffer *buff, int now);	/* Stop accepting new frames. If now == 1, stop providing new frames as well. */
-extern void buffer_destroy(pcm_buffer *buff);
+extern pcm_buffer *pcm_buffer_create(int size);
+extern int pcm_buffer_put(pcm_buffer *buff, void *src, int bytes);
+extern int pcm_buffer_get(pcm_buffer *buff, void *dst, int bytes);
+extern void pcm_buffer_stop(pcm_buffer *buff, int now);	/* Stop accepting new frames. If now == 1, stop providing new frames as well. */
+extern void pcm_buffer_destroy(pcm_buffer *buff);
+
+extern blk_buffer *blk_buffer_create(int bufsz, int count); 
+extern void *blk_buffer_request_decoding(blk_buffer *buff);
+extern void blk_buffer_commit_decoding(blk_buffer *buff);
+extern void *blk_buffer_request_playback(blk_buffer *buff);
+extern void blk_buffer_commit_playback(blk_buffer *buff);
+extern void blk_buffer_stop(blk_buffer *buff, int now);
+extern void blk_buffer_destroy(blk_buffer *buff);
+
 
 /* flac/main.c */
 extern int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int start);
@@ -179,6 +196,29 @@ static inline void free_nvset(struct nvset *nv) {
 	    nv = next;
     }	
 }
+
+/*  Settings for number and size of periods to be selected by defalut, depending on rate/fmt. 
+    Todo: need setting for strategy (e.g., "stable", "perf") in case of conflicts between these; 
+    for now, default to "stable" with larger period_size. */
+
+typedef enum { PERSET_DEFAULT, PERSET_RATE, PERSET_FMT } perset_t;
+
+struct perset {
+    perset_t	type;
+    int val;
+    int periods;
+    int period_size;	
+    struct perset *next;	
+};
+/* Pity we're not C++ */
+static inline void free_perset(struct perset *nv) {
+    while(nv) {	
+	struct perset *next = nv->next;
+	    free(nv);
+	    nv = next;
+    }	
+}
+
 /* for mixer_paths.xml */
 extern void *xml_mixp_open(const char *xml_path);
 extern void xml_mixp_close(void *xml);
@@ -192,6 +232,7 @@ extern int xml_dev_is_offload(void *xml);
 extern int xml_dev_is_mmapped(void *xml);
 extern int xml_dev_exists(void *xml, int device);  /* used with device=-1 in xml_dev_open */	
 extern struct nvset *xml_dev_find_ctls(void *xml, const char *name, const char *value);
+extern struct perset *xml_dev_find_persets(void *xml);
 
 /* TODO
 extern int xml_dev_get_chunks(void *xml, const char *rate, const char *format);

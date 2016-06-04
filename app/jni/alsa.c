@@ -74,6 +74,7 @@ static char cards_file[] = "/sdcard/.alsaplayer/cards.xml";
 static char cards_file[PATH_MAX];
 char *ext_cards_file = 0;
 int forced_chunks = 0, forced_chunk_size = 0;
+int force_mmap = 0, force_ring_buffer = 0;
 #endif
 
 /* free per track params */
@@ -93,6 +94,21 @@ static void alsa_close(playback_ctx *ctx)
 	priv->sync_ptr = 0;
 }
 
+void alsa_stop(playback_ctx *ctx) 
+{
+    alsa_priv *priv;
+	if(!ctx || !(priv = (alsa_priv *) ctx->alsa_priv)) {
+	    log_err("called with no context");	
+	    return;	
+	}
+	log_info("closing audio stream");	
+	if(priv->fd >= 0) ioctl(priv->fd, SNDRV_PCM_IOCTL_DROP);
+	alsa_close(ctx);
+	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
+	log_info("audio stream closed");
+}
+
+
 /* free per device params */
 void alsa_exit(playback_ctx *ctx)
 {
@@ -101,21 +117,28 @@ void alsa_exit(playback_ctx *ctx)
 	if(!ctx) return;
 	priv = (alsa_priv *) ctx->alsa_priv;
 	if(!priv) return;
-	alsa_close(ctx);
+
+	if(priv->is_mmapped) alsa_stop(ctx);
+	else alsa_close(ctx);
+
 	if(priv->card_name) free(priv->card_name);
 	if(priv->nv_start) free_nvset(priv->nv_start);
 	if(priv->nv_stop) free_nvset(priv->nv_stop);
 	if(priv->xml_dev) xml_dev_close(priv->xml_dev);
 	if(priv->devinfo) free(priv->devinfo);
+
 	for(k = 0; k < n_supp_rates; k++) 
 	    if(priv->nv_rate[k]) free(priv->nv_rate[k]);
+
 	for(k = 0; k < n_supp_formats; k++) { 
 	    if(priv->nv_fmt[k]) free(priv->nv_fmt[k]);
 	    if(priv->nv_vol_digital[k]) free(priv->nv_vol_digital[k]);
 	    if(priv->nv_vol_analog[k]) free(priv->nv_vol_analog[k]);
 	}
+
 	free(priv);
 	ctx->alsa_priv = 0;
+	log_info("exited");
 }
 
 /* Macros/inlines for setting hardware parameters */
@@ -178,8 +201,8 @@ static inline void setup_hwparams(struct snd_pcm_hw_params *params,
     if(fmt) param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT, fmt);		/* we don't support U8 = 0 */
     if(rate) param_set_int(params, SNDRV_PCM_HW_PARAM_RATE, rate);
     if(channels) param_set_int(params, SNDRV_PCM_HW_PARAM_CHANNELS, channels);	
-    if(period_size) param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, period_size);
     if(periods) param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS, periods);
+    if(period_size) param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, period_size);
 }
 
 static inline char *cat_str(char *dest, const char *src)
@@ -240,7 +263,6 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		return 0;
 	    }
 	    if(priv->card != card) alsa_free_mixer_controls(ctx);
-	    alsa_close(ctx);
 	    alsa_exit(ctx);	
 	    log_info("switching to card %d device %d", card, device);
 	}
@@ -329,7 +351,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    
 	    /* add rate/fmt default values to nv_stop: mixer_paths does not include them! */
 	    nv = xml_dev_find_ctls(xml_dev, "rate", "default");
-	    if(nv) log_info("will use %s as default rate", nv->value);
+	    if(nv && nv->value) log_info("will use %s as default rate", nv->value);
 	    else log_info("no default rate");	
 
 	    if(!priv->nv_stop) priv->nv_stop = nv2 = nv;
@@ -338,12 +360,27 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    while(nv2 && nv2->next) nv2 = nv2->next;	/* set nv2 -> tail of nv_stop */
 
 	    nv = xml_dev_find_ctls(xml_dev, "fmt", "default");
-	    if(nv) log_info("will use %s as default format", nv->value);
+	    if(nv && nv->value) log_info("will use %s as default format", nv->value);
 	    else log_info("no default format");	
 
 	    if(!priv->nv_stop) priv->nv_stop = nv;
 	    else nv2->next = nv;	/* if nv_stop was found before, nv2 must point to its tail */	
+	    
+	    priv->perset = xml_dev_find_persets(xml_dev);
+	    if(priv->perset) {
+		struct perset *p;
+		for(p= priv->perset; p; p = p->next) {
+		    log_info("perset type=%d val=%d periods=%d period_size=%d", 
+			p->type, p->val, p->periods, p->period_size);
+		}
+	    } else log_info("No buffer settings found.");
 	}
+#ifndef ANDROID
+	if(force_mmap) {
+	    log_info("forcing mmapped playback");
+	    priv->is_mmapped = 1;
+	}
+#endif
 	/* fire up */
 	if(nvstart) {
 	    k = set_mixer_controls(ctx, nvstart);
@@ -473,12 +510,31 @@ int alsa_start(playback_ctx *ctx)
     int i, k, ret = 0;
     int periods_min, periods_max, persz_min, persz_max;
     alsa_priv *priv = (alsa_priv *) ctx->alsa_priv;
+    int conf_periods = 0, conf_period_size = 0;
+    struct perset *pers;
+
+	for(pers = priv->perset; pers; pers = pers->next) {
+	    if(pers->type == PERSET_DEFAULT) {
+		conf_periods = pers->periods;
+		conf_period_size = pers->period_size;
+		log_info("default period settings found");
+		break;
+	    }	    	
+	}
 
 	for(i = 0; i < n_supp_formats; i++)
 	    if(supp_formats[i].strm_bits == ctx->bps && 
 		(supp_formats[i].mask & priv->supp_formats_mask)) {
 		priv->cur_fmt = i;
 		if(priv->nv_fmt[i]) set_mixer_controls(ctx, priv->nv_fmt[i]);
+		for(pers = priv->perset; pers; pers = pers->next) {
+		    if(pers->type == PERSET_FMT && pers->val == supp_formats[i].mask) {
+			if(conf_periods) log_info("period settings redefined for fmt=%s", supp_formats[i].str);
+			conf_periods = pers->periods;
+			conf_period_size = pers->period_size;
+			break;
+		    }		    	
+		}
 		break;
 	    }
 	if(i == n_supp_formats) {
@@ -499,6 +555,14 @@ int alsa_start(playback_ctx *ctx)
 				ctx->samplerate, ctx->samplerate >> k);	
 			ctx->samplerate >>= k; 	
 			ctx->rate_dec = k;
+		    }
+		    for(pers = priv->perset; pers; pers = pers->next) {
+			if(pers->type == PERSET_RATE && pers->val == ctx->samplerate) {
+			    if(conf_periods) log_info("period settings redefined for rate=%d", ctx->samplerate);
+			    conf_periods = pers->periods;
+			    conf_period_size = pers->period_size;
+			    break;
+			}
 		    }
 		    ret = 0;
 		    break;
@@ -527,13 +591,24 @@ int alsa_start(playback_ctx *ctx)
 	}
 	log_info("pcm opened");
 
+	if(conf_periods && conf_period_size) {
+	    setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, 
+			conf_periods, conf_period_size, priv->is_mmapped);
+	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) == 0) {
+		priv->chunks = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIODS)->max;
+		priv->chunk_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
+		log_info("period settings from config file succeeded");
+		goto hwsetup_done;	
+	    } else log_info("period settings %d:%d from config file failed", conf_periods, conf_period_size);
+	}
+
 	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, 0, 0, priv->is_mmapped);
 
  	log_info("Trying: format=%s rate=%d channels=%d bps=%d (phys=%d)", priv->format->str, 
 	    ctx->samplerate, ctx->channels, ctx->bps, priv->format->phys_bits);	
 
 	if(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_REFINE, params) != 0) {
-	    log_info("refine failed");
+	    log_err("refine failed");
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
 	}
@@ -541,7 +616,7 @@ int alsa_start(playback_ctx *ctx)
 	i = param_to_interval(params, SNDRV_PCM_HW_PARAM_SAMPLE_BITS)->max;
 	if(i != priv->format->phys_bits ||
 		i != param_to_interval(params, SNDRV_PCM_HW_PARAM_SAMPLE_BITS)->min) {
-	    log_info("bogie refine");
+	    log_err("bogie refine");
      	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
 	}
@@ -553,6 +628,27 @@ int alsa_start(playback_ctx *ctx)
 	log_info("Period size: min=%d\tmax=%d", persz_min, persz_max);
 	log_info("    Periods: min=%d\tmax=%d", periods_min, periods_max);
 
+
+	if(!priv->is_mmapped && ctx->block_min == ctx->block_max 
+		&& (ctx->block_min >> ctx->rate_dec) <= persz_max 
+		&& (ctx->block_min >> ctx->rate_dec) >= persz_min
+#ifndef ANDROID
+		&& !forced_chunks && !forced_chunk_size && !force_ring_buffer
+#endif
+	) {
+	    param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, ctx->block_min >> ctx->rate_dec);
+	    param_set_range(params, SNDRV_PCM_HW_PARAM_PERIODS, periods_min, periods_max);
+	    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) == 0) {
+		priv->chunks = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIODS)->max;
+		priv->chunk_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
+		log_info("found matching period settings for source block_size");
+		ctx->block_write = 1;
+		goto hwsetup_done;
+	    }
+	    log_info("failed to find matching periods for source block_size");
+	} else log_info("skip kernel buffer size matching");
+
+
 #ifndef ANDROID	
 	priv->chunks = forced_chunks ? forced_chunks : periods_max;
 	priv->chunk_size = forced_chunk_size ? forced_chunk_size : persz_max;
@@ -560,13 +656,49 @@ int alsa_start(playback_ctx *ctx)
 	priv->chunks = periods_max;
 	priv->chunk_size = persz_max;
 #endif
+
 	if(priv->chunks > 32) priv->chunks = 32; 
 
+	/* Try most promising option first. */
+
+	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, priv->chunks, 
+		(periods_min * persz_max)/priv->chunks, priv->is_mmapped);
+
+	if(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) == 0) {	/* succeeded at once! */
+	    priv->chunk_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
+	    goto hwsetup_done;
+	} else log_info("setting %d:%d failed, continue", priv->chunks, (periods_min * persz_max)/priv->chunks);
+
+#if 0
+////////////////////////////////////////////////////////////////
+for(i = periods_max; i > 1; i >>=1 ) {
+    setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, i, 0, priv->is_mmapped);
+    param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS,i);
+    if(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) != 0) {
+#if 0
+	log_info("periods %04d: %d - %d",
+	param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIODS)->min,
+	param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->min,
+	param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max);
+    } else { 
+#endif
+	log_err("setting %d periods failed", i);
+	continue;
+    }	
+    for(k = persz_max; k > persz_min; k >>= 1) {	
+    	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, i, k, priv->is_mmapped);
+	if(ioctl(priv->fd, SNDRV_PCM_IOCTL_HW_PARAMS, params) == 0) {
+	    log_err("setting %d for %d periods succeeded", k, i);
+	    break;
+	}
+    }
+}
+///////////////////////////////////////////////////////////////
+#endif
+
+	setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, 0, 0, priv->is_mmapped);
 	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->chunk_size);
 	param_set_int(params, SNDRV_PCM_HW_PARAM_PERIODS, priv->chunks);
-
-	/* Try to obtain the largest buffer possible keeping in mind 
-	   that ALSA always tries to set minimum latency */
 
 #define NSTEPS	8
 
@@ -597,10 +729,13 @@ int alsa_start(playback_ctx *ctx)
 		goto err_exit;
 	    }
 	    setup_hwparams(params, priv->format->fmt, ctx->samplerate, ctx->channels, priv->chunks, 0, priv->is_mmapped);
-	    param_set_range(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->chunk_size, persz_max);		
+	    param_set_range(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, priv->chunk_size, persz_max);
 	    log_info("retrying with period_size %d periods %d", priv->chunk_size, priv->chunks);	
 	}
+
 	priv->chunk_size = param_to_interval(params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE)->max;
+
+   hwsetup_done:
 
 #ifndef ANDROID
 	if(forced_chunks)
@@ -608,9 +743,7 @@ int alsa_start(playback_ctx *ctx)
 	else
 #endif
 	log_info("selecting period size %d, periods %d", priv->chunk_size, priv->chunks);
-
 	priv->buffer_size = priv->chunk_size * priv->chunks;
-
 	priv->buf_bytes = priv->chunk_size * ctx->channels * priv->format->phys_bits/8;
 
 	if(priv->is_mmapped) {
@@ -686,7 +819,8 @@ filled with silence. Note: silence_threshold must be set to zero.  */
             ret = LIBLOSSLESS_ERR_AU_SETCONF;
             goto err_exit;
         }
-#if 0
+#if 1
+    if(ctx->block_write)	
 	for(k = 0; k < priv->chunks; k++) {
 	    i = write(priv->fd, priv->buf, priv->buf_bytes);
 	    if(i != priv->buf_bytes) {
@@ -770,10 +904,11 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
     struct snd_xferi xf;
     struct snd_pcm_status pcm_stat;
 
-	if(!ctx || !ctx->alsa_priv || (ctx->state != STATE_PLAYING && ctx->state != STATE_STOPPING)) {
+	if(ctx->state != STATE_PLAYING && ctx->state != STATE_STOPPING && ctx->state != STATE_INTR) {
 	    log_err("stream must be closed or paused");	
 	    return 0;
 	}
+
 	priv = (alsa_priv *) ctx->alsa_priv;	
 
 	xf.buf = buf ? buf : priv->buf;
@@ -784,7 +919,7 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 	    log_err("frames count %d larger than period size %d", (int) count, priv->chunk_size);
 	    count = priv->chunk_size;
 	} else if(count < priv->chunk_size) {
-	    log_info("short buffer, must be EOF");	
+	    log_info("short buffer %ld < %d, must be EOF", count, priv->chunk_size);	
 	    if(buf) {
 		memcpy(priv->buf, buf, count * ctx->channels * priv->format->phys_bits/8);
 	    	xf.buf = priv->buf;	
@@ -792,7 +927,6 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 	    memset(priv->buf + count * ctx->channels * priv->format->phys_bits/8, 0, 
 			(priv->chunk_size - count) * ctx->channels * priv->format->phys_bits/8);
 	}	
-
 	while(written < priv->chunk_size) {
 #if 1
 	    i = ioctl(priv->fd, SNDRV_PCM_IOCTL_STATUS, &pcm_stat);
@@ -824,7 +958,7 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 		   case EPIPE:
 			log_info("underrun!");
 			ioctl(priv->fd, SNDRV_PCM_IOCTL_STATUS, &pcm_stat);
-			log_info("%ld %ld %ld %ld", pcm_stat.hw_ptr, pcm_stat.appl_ptr, pcm_stat.avail, pcm_stat.avail_max);
+			log_info("hw=%ld appl=%ld avail=%ld max=%ld", pcm_stat.hw_ptr, pcm_stat.appl_ptr, pcm_stat.avail, pcm_stat.avail_max);
 			if(ioctl(priv->fd, SNDRV_PCM_IOCTL_PREPARE) < 0) {
 			    log_err("prepare failed after underrun");
 			    ctx->alsa_error = 1;
@@ -840,7 +974,6 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 	    written += xf.result;
 	}	
 	ctx->written += count;
-
     return written;
 }
 
@@ -981,21 +1114,6 @@ int alsa_is_mmapped(playback_ctx *ctx)
 {
     if(!ctx || !ctx->alsa_priv) return 0;
     return ((alsa_priv *) ctx->alsa_priv)->is_mmapped;
-}
-
-void alsa_stop(playback_ctx *ctx) 
-{
-    alsa_priv *priv;
-	
-	if(!ctx || !(priv = (alsa_priv *) ctx->alsa_priv)) {
-	    log_err("called with no context");	
-	    return;	
-	}
-	log_info("closing audio stream");	
-	if(priv->fd >= 0) ioctl(priv->fd, SNDRV_PCM_IOCTL_DRAIN);
-	alsa_close(ctx);
-	log_info("audio stream closed");
-	if(priv->nv_stop) set_mixer_controls(ctx, priv->nv_stop);
 }
 
 bool alsa_pause(playback_ctx *ctx) 

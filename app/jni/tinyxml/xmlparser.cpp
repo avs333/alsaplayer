@@ -16,6 +16,23 @@ extern "C" {
 	int min, max;
 	struct nvset *next;	
     };
+    static const struct {
+	const char *name;
+	int  val;
+    } supp_formats[] = { 
+	{ "SNDRV_PCM_FORMAT_S16_LE",  (1 << 0) },
+	{ "SNDRV_PCM_FORMAT_S24_LE",  (1 << 1) },
+	{ "SNDRV_PCM_FORMAT_S24_3LE", (1 << 2) },
+	{ "SNDRV_PCM_FORMAT_S32_LE",  (1 << 3) },
+    };
+#define n_supp_formats int((sizeof(supp_formats))/(sizeof(supp_formats[0])))	
+    typedef enum { PERSET_DEFAULT, PERSET_RATE, PERSET_FMT } perset_t;
+    struct perset {
+	perset_t type;
+	int val;
+	int periods, period_size;
+	struct perset *next;
+    };
 }
 
 class MixXML : public XMLDocument {
@@ -292,6 +309,71 @@ extern "C" struct nvset *xml_dev_find_ctls(void *xml, const char *name, const ch
 	}    	
     }
     return 0;	
+}
+
+/*
+ <path name="preset" [one of: rate="NNN", fmt="SNDRV_PCM_FORMAT_XXX", or default="1"] value="32:4096"/> 
+*/
+
+static struct perset *add_perset(struct perset *pers, XMLElement *e)
+{
+    int k;
+    struct perset *pp, p = { PERSET_DEFAULT, 0, 0, 0, 0 };
+    const char *c;
+
+	c = e->Attribute("value");
+	if(!c || sscanf(c, "%d:%d", &p.periods, &p.period_size) != 2) return 0;
+
+	c = e->Attribute("rate");
+	if(c) { 
+	    p.val = atoi(c);
+	    if(p.val <= 0) return 0;
+	    p.type = PERSET_RATE; 
+	} else {
+	    c = e->Attribute("fmt");
+	    if(c) {	
+		for(k = 0; k < n_supp_formats; k++) if(strcmp(c, supp_formats[k].name) == 0) break;
+		if(k == n_supp_formats) return 0;
+		p.type = PERSET_FMT;
+		p.val = supp_formats[k].val;
+	    } else {
+		if(!e->Attribute("default", "1")) return 0;	
+		p.val = 1;
+	    }
+	}
+        pp = (struct perset *) malloc(sizeof(struct perset));
+	if(!pp) return 0;
+	*pp = p;
+	pp->next = pers;	
+
+    return pp;
+}
+
+extern "C" struct perset *xml_dev_find_persets(void *xml)
+{
+    DeviceXML *m = (DeviceXML *) xml; 	
+    if(!m || !m->is_valid() || m->is_card_only()) return 0;	
+    XMLElement *e, *e1, *e2;
+    struct perset *ret = 0;
+
+    for(e = m->get_dev_root()->FirstChildElement(); e; e = e->NextSiblingElement()) {
+	if(strcmp(e->Name(), "path") == 0 && e->Attribute("name", "perset")) {
+	    ret = add_perset(ret, e); 
+	    continue;	
+	}
+	const char *c = e->Attribute("name");
+	if(!c) continue;
+	for(e1 = m->get_card_root()->FirstChildElement(); e1; e1 = e1->NextSiblingElement()) {
+	    if(strcmp(e1->Name(), "path") == 0 && e1->Attribute("name", c)) {
+		for(e2 = e1->FirstChildElement(); e2; e2 = e2->NextSiblingElement()) {
+		    if(strcmp(e2->Name(), "path") == 0 && e2->Attribute("name", "perset")) {
+	    		ret = add_perset(ret, e); 
+		    }
+		}
+	    }
+	}
+    }
+    return ret;	
 }
 
 
