@@ -543,8 +543,7 @@ int flac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int st
 		}
 		pcmbuf = blk_buffer_request_decoding(ctx->blk_buff);
 		if(!pcmbuf) {
-		    log_err("request for decoding buffer failed");
-		    ret = LIBLOSSLESS_ERR_DECODE;
+		    log_err("request for decoding buffer failed, should be stopped");
 		    goto done;
 		}
 	    }

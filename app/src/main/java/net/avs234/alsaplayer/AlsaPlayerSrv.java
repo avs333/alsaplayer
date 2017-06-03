@@ -553,15 +553,22 @@ public class AlsaPlayerSrv extends Service {
 				try {
 					while(th.isAlive()) {	
 						th.join(100); k++;
-						if(th.isAlive()) SystemClock.sleep(50);
-						else break;
+					/*	if(th.isAlive()) SystemClock.sleep(50);
+						else break; */
 						if(k > 20) break;
 					}
 				} catch (InterruptedException e) {
 					log_err("Interrupted exception in stop(): " + e.toString());
 				}
-				if(th.isAlive()) log_err(String.format("stop(): thread %d is still alive after %d ms",tid, k*100));
-				else log_msg(String.format("stop(): thread terminated after %d ms",k*100));
+				if(th.isAlive()) {
+					log_err(String.format("stop(): thread %d is still alive after %d ms",tid, k*100));
+					informTrack(getString(R.string.strSrvFail),true);
+					try {
+						th.join();
+					} catch (InterruptedException e) {
+						log_err("Interrupted exception in stop#th.join(): " + e.toString());
+					}
+				} else log_msg(String.format("stop(): thread terminated after %d ms",k*100));
 				th = null;
 				Process.setThreadPriority(i);
 			} else log_msg(String.format("stop(): player thread was null (my tid %d)", Process.myTid()));

@@ -223,6 +223,7 @@ int _FN(compr_offload_time_pos) (int fd)
 {
     struct snd_compr_avail avail;
     int ret = ioctl(fd, SNDRV_COMPRESS_AVAIL, &avail); 
+/*	log_info("%s: ret=%d frames %d samplerate %d", __func__, ret, (int) avail.tstamp.pcm_io_frames, (int) avail.tstamp.sampling_rate); */
 	if(ret != 0 || avail.tstamp.sampling_rate == 0) return 0;
     return avail.tstamp.pcm_io_frames / avail.tstamp.sampling_rate;
 }

@@ -83,7 +83,7 @@
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0"/> </path>
 	<path name="common_pcm_settings"/>
     </device> -->
-    <device id="1" mmap="1">
+    <device id="1" mmap="0">
 	<path name="start"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="1"/> </path>
 	<path name="stop"> <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia2" value="0"/> </path>
 	<path name="common_pcm_settings"/>
@@ -174,6 +174,77 @@
 	    <ctl name="HPHR Volume" value="16"/>
 	    <ctl name="HPHL Volume" value="16"/>
 	</path>
+    </path>
+  </card>
+
+  <card name="(msm8996).*" builtin="1">
+    <device id="0" mmap="0">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia1" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia1" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device> 
+    <device id="1" mmap="1">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia2" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia2" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <device id="4">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia3" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia3" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <device id="9" offload="1">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia4" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia4" value="0"/> </path>
+	<path name="digital_volume"> <ctl name="Compress Playback 9 Volume" value="4096" min="0" max="8192" flags="1"/> </path>
+    </device>
+    <device id="15" mmap="1">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia5" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia5" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <device id="17" offload="1">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia7" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia7" value="0"/> </path>
+	<path name="digital_volume"> <ctl name="Compress Playback 17 Volume" value="4096" min="0" max="8192" flags="1"/> </path>
+    </device>
+    <device id="32" mmap="0">
+	<path name="start"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia9" value="1"/> </path>
+	<path name="stop"> <ctl name="SLIMBUS_6_RX Audio Mixer MultiMedia9" value="0"/> </path>
+	<path name="common_pcm_settings"/>
+    </device>
+    <!-- *Offload* devices with ids 37 thru 42 also available (MultiMedia11 thru 16)  -->	
+    <path name="common_pcm_settings">	
+	<path name="rate" value="44100"> <ctl name="SLIM_6_RX SampleRate" value="KHZ_48"/> </path>	 
+	<path name="rate" value="48000"> <ctl name="SLIM_6_RX SampleRate" value="KHZ_48"/> </path>	 
+	<path name="rate" value="96000"> <ctl name="SLIM_6_RX SampleRate" value="KHZ_96"/> </path>	 
+	<path name="rate" value="176400"> <ctl name="SLIM_6_RX SampleRate" value="KHZ_192"/> </path>	 
+	<path name="rate" value="192000"> <ctl name="SLIM_6_RX SampleRate" value="KHZ_192"/> </path>	 
+	<path name="rate" value="default"> <ctl name="SLIM_6_RX SampleRate" value="KHZ_48"/> </path>
+	<path name="fmt" value="SNDRV_PCM_FORMAT_S16_LE"> <ctl name="SLIM_6_RX Format" value="S16_LE"/> </path>
+	<path name="fmt" value="SNDRV_PCM_FORMAT_S24_LE"> <ctl name="SLIM_6_RX Format" value="S24_LE"/> </path>
+	<path name="fmt" value="default"> <ctl name="SLIM_6_RX Format" value="S16_LE"/> </path>
+        <!-- Volume controls, their fmt values and min/max values are optional. For example, commenting out 
+             digital controls and setting analog min/max values will result in purely analog control
+	     (equal or missing min/max values means that the control is currently disabled, "value"
+	     is the start-up value). -->       
+	<path name="digital_volume" value="SNDRV_PCM_FORMAT_S16_LE">
+	    <ctl name="RX1 Mix Digital Volume" value="64" min="0" max="84"/>
+	    <ctl name="RX2 Mix Digital Volume" value="64" min="0" max="84"/>
+	</path>
+	<path name="digital_volume" value="SNDRV_PCM_FORMAT_S24_LE">
+	    <ctl name="RX1 Mix Digital Volume" value="118" min="40" max="124"/>
+	    <ctl name="RX2 Mix Digital Volume" value="118" min="40" max="124"/>
+	</path>
+	<!--
+	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S16_LE">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path>
+	<path name="analog_volume" value="SNDRV_PCM_FORMAT_S24_LE">
+	    <ctl name="HPHR Volume" value="16"/>
+	    <ctl name="HPHL Volume" value="16"/>
+	</path> -->
     </path>
   </card>
 

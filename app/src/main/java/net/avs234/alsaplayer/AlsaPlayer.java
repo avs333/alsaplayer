@@ -69,6 +69,9 @@ import android.widget.SeekBar.OnSeekBarChangeListener;
 import net.avs234.alsaplayer.iconifiedlist.IconifiedText;
 import net.avs234.alsaplayer.iconifiedlist.IconifiedTextListAdapter;
 
+
+import android.support.v4.os.EnvironmentCompat;
+
 public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	
     	// Current directory **OR** current cue/playlist file
@@ -103,7 +106,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	}
 
 	private final boolean Marshmallow = true;    
-
+	private String InternalStorage = null;
 	
     	// UI elements defined in layout xml file.
     	private LinearLayout layout_background;
@@ -233,8 +236,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     				
     				if(s == null) {
   				    if(prefs.last_path == null || !(cur_path = new File(prefs.last_path)).exists()) {
-    		           		 	cur_path = Marshmallow ? new File("/sdcard") : Environment.getExternalStorageDirectory();
-    			            }	
+    		           		// 	cur_path = Marshmallow ? new File("/sdcard") : Environment.getExternalStorageDirectory();
+					cur_path = new File(InternalStorage);
+				    }
 	    		            if(!setAdapter(cur_path)) {
    	 		            	log_err("cannot set default adapter!!!" + cur_path);
     			            	if(!setAdapter(new File("/"))) errExit(R.string.strCantSetup);
@@ -400,7 +404,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		public void onClick(View v) {
     			if(cur_path == null) return;
     			v.startAnimation(AnimationUtils.loadAnimation(getApplicationContext(),  R.anim.blink));
-    			File path = cur_path.getParentFile();
+			File path = cur_path.getParentFile();
     			if(path != null) {
     				int k = cur_path.toString().lastIndexOf('/');
     				String last_path = cur_path.toString().substring(k+1);
@@ -443,7 +447,9 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     	
     	private void onButtUp() {
     		if(cur_path == null) return;
-			File path = cur_path.getParentFile();
+
+		File path = cur_path.getParentFile();
+
 			if(path != null) {
 				int k = cur_path.toString().lastIndexOf('/');
 				String last_path = cur_path.toString().substring(k+1);
@@ -624,7 +630,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	    				Toast.makeText(getApplicationContext(), R.string.strBadBook, Toast.LENGTH_SHORT).show();
 	    				return;
 					}
-					if(k < first_file_pos && f != null) {	// Directory, cue or playlist was clicked in the list 
+				if(k < first_file_pos && f != null) {	// Directory, cue or playlist was clicked in the list 
     					if(!setAdapter(f)) {
     						log_err("error setting adapter for " + f.toString());
     					}
@@ -995,6 +1001,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 
             Intent ii = getIntent();
 
+	    InternalStorage = System.getenv("EXTERNAL_STORAGE");
+	    	
 	    prefs = new Prefs();
 	    if(prefs == null) log_err("PREFS NULL!");	
 
@@ -1091,7 +1099,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	                last_played_file = shpr.getString("last_played_file", null);
 	                last_played_pos = shpr.getInt("last_played_pos",0);
 	                last_played_time = shpr.getInt("last_played_time",0);
-	                plist_path = shpr.getString("plist_path", Marshmallow ? "/sdcard" : Environment.getExternalStorageDirectory().toString());
+	                plist_path = shpr.getString("plist_path", Marshmallow ? InternalStorage : Environment.getExternalStorageDirectory().toString());
 	                plist_name = shpr.getString("plist_name", "Favorites");
 			
 			update();

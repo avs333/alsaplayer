@@ -24,10 +24,8 @@
 #include "flac/decoder.h"
 #include "main.h"
 
-#if defined(ANDROID) || defined(ANDLINUX)
-static char mixer_paths_file[] = "/system/etc/mixer_paths.xml";
-#else
-static char mixer_paths_file[PATH_MAX];
+#ifdef ACDB_TEST
+static char ainfo_file[] = "/system/etc/audio_platform_info.xml";
 #endif
 
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
@@ -66,9 +64,11 @@ enum playback_state sync_state(playback_ctx *ctx, const char *func) {
 
 void playback_complete(playback_ctx *ctx, const char *func)
 {
+   int i = ctx->state;
+
     pthread_mutex_lock(&ctx->mutex);
-    if(ctx->state != STATE_STOPPED && ctx->state != STATE_INTR) ctx->state = STATE_STOPPING;	
-    log_info("playback complete in %s", func);
+    if(/* ctx->state != STATE_STOPPED && */ ctx->state != STATE_INTR) ctx->state = STATE_STOPPING;	
+    log_info("playback complete in %s, %d->%d", func, i, ctx->state);
     pthread_mutex_unlock(&ctx->mutex);
     audio_stop(ctx);	
 }
@@ -106,6 +106,7 @@ int audio_stop(playback_ctx *ctx)
 	    log_info("audio_thread exited");	
 	}
     	alsa_stop(ctx);
+	pthread_mutex_lock(&ctx->mutex);
 	if(ctx->pcm_buff) {
 	    pcm_buffer_destroy(ctx->pcm_buff);
 	    ctx->pcm_buff = 0;
@@ -115,6 +116,7 @@ int audio_stop(playback_ctx *ctx)
 	    ctx->blk_buff = 0;
 	}	
 	ctx->state = STATE_STOPPED;
+	pthread_mutex_unlock(&ctx->mutex);
     	ctx->track_time = 0;	
 /*	pthread_cond_broadcast(&ctx->cond_stopped); */
 	log_info("stopped");
@@ -180,7 +182,7 @@ int audio_start(playback_ctx *ctx, int buffered_write)
 	period_size = alsa_get_period_size(ctx);
 
 	if(ctx->block_write) {
-	    k = (period_size >> ctx->rate_dec) * ctx->channels * (format->phys_bits/8);
+	    k = (ctx->block_max >> ctx->rate_dec) * ctx->channels * (format->phys_bits/8);
 	    ctx->blk_buff = blk_buffer_create(k, 64);
 	    if(!ctx->blk_buff) {
 		log_err("cannot create block buffer");
@@ -460,17 +462,29 @@ jlong audio_init(JNIEnv *env, jobject obj, jlong jctx, jint card, jint device)
     } else {
 	ctx = (playback_ctx *) calloc(1, sizeof(playback_ctx));
 	if(!ctx) return 0;
-#if !defined(ANDROID) && !defined(ANDLINUX)
-	sprintf(mixer_paths_file, "%s/.alsaplayer/mixer_paths.xml", getenv("HOME"));
-#endif
-	ctx->xml_mixp = xml_mixp_open(mixer_paths_file);
-        if(!ctx->xml_mixp) log_info("%s missing", mixer_paths_file);
-        else log_info("%s opened", mixer_paths_file);
+
 
 	if(alsa_select_device(ctx,card,device) != 0) {
 	    free(ctx);	
 	    return 0;	
 	}
+#ifdef ACDB_TEST
+	ctx->acdb_id = xml_get_acdb_id(ainfo_file, "SND_DEVICE_OUT_HEADPHONES");
+	if(ctx->acdb_id > 0) log_info("headphones acdb_id=%d", ctx->acdb_id);
+	ctx->acdblib = dlopen("/system/vendor/lib64/libacdbloader.so",RTLD_NOW);
+	if(ctx->acdblib) {
+	    char cvd[100] = "322e3200000000000000000000000000000000000000000000000000000000";
+	    char card[100] = "msm8996tashamtp";	
+	    int (*acdbinit)(char *, char *, int) = (typeof(acdbinit)) dlsym(ctx->acdblib, "acdb_loader_init_v2");
+	    log_info("acdb opened");		
+	    if(acdbinit) {		
+		int ret = acdbinit(card, cvd, 0);
+		log_info("acdb_init returned %d", ret);
+		ctx->acdbcal = (typeof(ctx->acdbcal)) dlsym(ctx->acdblib, "acdb_loader_send_audio_cal_v2");
+		if(ctx->acdbcal) log_info("acdb_loader_send_audio_cal_v2 found");
+	    }
+	} else log_err("failed to open acdb");
+#endif
 	pthread_mutex_init(&ctx->mutex,0);
 /*	pthread_mutex_init(&ctx->stop_mutex,0); */
 /*	pthread_cond_init(&ctx->cond_stopped,0); */
@@ -500,6 +514,9 @@ jboolean audio_exit(JNIEnv *env, jobject obj, jlong jctx)
     if(ctx->pcm_buff) pcm_buffer_destroy(ctx->pcm_buff);	
     if(ctx->blk_buff) blk_buffer_destroy(ctx->blk_buff);	
     if(ctx->xml_mixp) xml_mixp_close(ctx->xml_mixp);
+#ifdef ACDB_TEST
+    if(ctx->acdblib) dlclose(ctx->acdblib);
+#endif	
     pthread_mutex_destroy(&ctx->mutex);
 /*  pthread_mutex_destroy(&ctx->stop_mutex); */
 /*  pthread_cond_destroy(&ctx->cond_stopped);	*/
@@ -619,6 +636,8 @@ static jboolean libinit(JNIEnv *env, jobject obj, jint sdk)
 
 static jboolean libexit(JNIEnv *env, jobject obj) 
 {
+    log_info("exiting.");
+    _exit(0);
     return true;
 }
 

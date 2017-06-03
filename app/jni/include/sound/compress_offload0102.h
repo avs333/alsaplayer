@@ -29,6 +29,10 @@
 #include <sound/asound.h>
 /* #include <sound/compress_params.h> */
 
+#if 0
+Here, Android "kernel gurus" do whatever comes into their dumbass heads, 
+never mind the PROTOCOL_VERSION
+#endif
 
 #define SNDRV_COMPRESS_VERSION SNDRV_PROTOCOL_VERSION(0, 1, 2)
 struct snd_compressed_buffer {
@@ -53,7 +57,11 @@ struct snd_compr_tstamp {
 	__u32 pcm_io_frames;
 	__u32 sampling_rate;
 	uint64_t timestamp;
-};
+}
+#if 1
+ __attribute__((packed, aligned(4)))
+#endif
+;
 
 struct snd_compr_avail {
 	__u64 avail;

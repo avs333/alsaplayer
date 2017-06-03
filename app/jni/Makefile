@@ -15,7 +15,7 @@ BINPATH=$(NDK)/toolchains/arm-linux-androideabi-$(GCCVER)/prebuilt/linux-$(HOSTA
 STL=$(NDK)/sources/cxx-stl/gnu-libstdc++/$(GCCVER)
 CC=$(BINPATH)/arm-linux-androideabi-gcc
 CXX=$(BINPATH)/arm-linux-androideabi-g++
-CFLAGS += --sysroot=$(SYSROOT) -Wl,-pie -march=armv7-a -DANDLINUX
+CFLAGS += --sysroot=$(SYSROOT) -Wl,-pie -march=armv7-a -DANDLINUX -DTEST8000
 CXXFLAGS += -I$(STL)/include -I$(STL)/libs/armeabi-v7a/include
 LDFLAGS += -L$(STL)/libs/armeabi-v7a -lgnustl_static
 LDFLAGS += -Llib -lselinux

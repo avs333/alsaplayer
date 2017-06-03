@@ -322,8 +322,6 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 	    goto done;
 	}	
 
-/*	log_info("%d %d %d %d %d", bytesperblock, framesperblock, BLOCKS_PER_LOOP, ctx->block_min, ctx->block_max); */
-
 	/* The main decoding loop - we decode the frames a small chunk at a time */
 	while(currentframe < ape_ctx.totalframes) {
 
@@ -442,8 +440,7 @@ int ape_play(JNIEnv *env, jobject obj, playback_ctx* ctx, jstring jfile, int sta
 
 		    if(blockstodecode < framesperblock) {
 			log_info("short buffer, should be eof");
-			memset(pcmbuf + blockstodecode * ctx->channels * (format->phys_bits/8), 0,
-			    (framesperblock - blockstodecode) * ctx->channels * (format->phys_bits/8));
+			memset(p, 0, (framesperblock - blockstodecode) * ctx->channels * (format->phys_bits/8));
 		    }
 		    blk_buffer_commit_decoding(ctx->blk_buff);
 

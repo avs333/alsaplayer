@@ -93,6 +93,11 @@ typedef struct {
    unsigned int ape_fmt, ape_bpf;
    unsigned int ape_fin, ape_tot;
    void *alac_cfg;
+#ifdef ACDB_TEST
+   void *acdblib;			/* libacdbloader.so */
+   int (*acdbcal)(int, int, int, int);	/* "acdb_loader_send_audio_cal_v2" */
+   int acdb_id;
+#endif				/* headphones' acdb_id */
 } playback_ctx;
 
 /* main.c */
@@ -184,10 +189,13 @@ extern int alac_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile,
 struct nvset {
     const char *name;
     const char *value;
-    const char *append;
-    int min, max;
+    const char *append;		/* always append it to value */
+    int min, max, flags;
     struct nvset *next;
 };
+
+#define NV_FLAG_DUP	1
+
 
 static inline void free_nvset(struct nvset *nv) {
     while(nv) {	
@@ -224,6 +232,7 @@ extern void *xml_mixp_open(const char *xml_path);
 extern void xml_mixp_close(void *xml);
 extern const char *xml_mixp_find_control_default(void *xml, const char *name);
 extern struct nvset *xml_mixp_find_control_set(void *xml, const char *path);
+
 /* for cards.xml */
 extern void *xml_dev_open(const char *xml_path, const char *card, int device);
 extern void xml_dev_close(void *xml);
@@ -233,6 +242,11 @@ extern int xml_dev_is_mmapped(void *xml);
 extern int xml_dev_exists(void *xml, int device);  /* used with device=-1 in xml_dev_open */	
 extern struct nvset *xml_dev_find_ctls(void *xml, const char *name, const char *value);
 extern struct perset *xml_dev_find_persets(void *xml);
+
+/* for audio_platform_info.xml */
+#ifdef ACDB_TEST
+extern int xml_get_acdb_id(const char *file, const char *devname);
+#endif
 
 /* TODO
 extern int xml_dev_get_chunks(void *xml, const char *rate, const char *format);

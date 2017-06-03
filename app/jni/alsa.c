@@ -57,10 +57,14 @@ static const playback_format_t supp_formats[] = {
 #define SNDRV_PCM_RATE_96000		(1<<10)
 #define SNDRV_PCM_RATE_176400		(1<<11)
 #define SNDRV_PCM_RATE_192000		(1<<12)
+#define SNDRV_PCM_RATE_8000             (1<<1)
 
 static const struct _supp_rates {
     int rate, mask;
 } supp_rates[] = {
+#ifdef TEST8000
+    { 8000, SNDRV_PCM_RATE_8000 },	
+#endif
     { 44100, SNDRV_PCM_RATE_44100 }, { 88200, SNDRV_PCM_RATE_88200 }, { 176400, SNDRV_PCM_RATE_176400 },
     { 48000, SNDRV_PCM_RATE_48000 }, { 96000, SNDRV_PCM_RATE_96000 }, { 192000, SNDRV_PCM_RATE_192000 }
 };
@@ -68,7 +72,7 @@ static const struct _supp_rates {
 
 static int init_mixer_controls(playback_ctx *ctx, int card);
 
-#if defined(ANDROID) 
+#if defined(ANDROID) || defined(ANDLINUX) 
 static char cards_file[] = "/sdcard/.alsaplayer/cards.xml";
 #else
 static char cards_file[PATH_MAX];
@@ -287,7 +291,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
 	}
-	if(ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info) != 0 || !info.name) {
+	if(ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &info) != 0 || !info.name[0]) {
 	    log_err("card info query failed");
 	    ret = LIBLOSSLESS_ERR_AU_SETUP;
 	    goto err_exit;	
@@ -295,16 +299,12 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	priv->card_name = strdup((char *)info.name);
 	close(fd); 
 	fd = -1;
-#if !defined(ANDROID)
+#if !defined(ANDROID) && !defined (ANDLINUX)
 	if(ext_cards_file) {
 	    strcpy(cards_file, ext_cards_file);
 	    log_info("using custom config from %s", ext_cards_file);
 	} else {
-#if defined(ANDLINUX)
-	    strcpy(cards_file,"/sdcard/.alsaplayer/cards.xml");
-#else
 	    sprintf(cards_file, "%s/.alsaplayer/cards.xml", getenv("HOME"));	
-#endif
 	    log_info("using default config from %s", cards_file);
 	}
 #endif
@@ -321,7 +321,18 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		log_info("mmapped offload playback not supported yet, switching to mmaped=0");
 		priv->is_mmapped = 0;
 	    }	
-	    if(ctx->xml_mixp && xml_dev_is_builtin(xml_dev)) {
+#if defined(ANDROID) || defined(ANDLINUX)
+	    if(xml_dev_is_builtin(xml_dev) && !ctx->xml_mixp) {
+		char mpf[PATH_MAX], cardname[128], *cname;
+		strcpy(cardname, priv->card_name);
+		cname = strtok(cardname, "-");
+		if(cname && (cname = strtok(0, "-"))) sprintf(mpf, "/system/etc/mixer_paths_%s.xml", cname);
+		else strcpy(mpf, "/system/etc/mixer_paths.xml");
+		ctx->xml_mixp = xml_mixp_open(mpf);
+	        if(!ctx->xml_mixp) log_info("Mixer XML file %s missing", mpf);
+	        else log_info("Mixer XML file %s opened", mpf);
+	    }
+	    if(ctx->xml_mixp) {
 		priv->nv_start = xml_mixp_find_control_set(ctx->xml_mixp, "headphones");
 		if(!priv->nv_start) {
 		    priv->nv_start = xml_mixp_find_control_set(ctx->xml_mixp, "headset");
@@ -336,6 +347,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 		    nv2->value = xml_mixp_find_control_default(ctx->xml_mixp, nv2->name); 	/* last one */
 		} else log_info("no headphones/headset path");
 	    } else log_info("no headphones/headset path");
+#endif
 
 	    nv = xml_dev_find_ctls(xml_dev, "start", 0);
 	    if(!priv->nv_start) priv->nv_start = nv;
@@ -576,6 +588,13 @@ int alsa_start(playback_ctx *ctx)
 	    goto err_exit;	
 	}
 
+#ifdef ACDB_TEST
+        if(ctx->acdb_id > 0 && ctx->acdbcal) {
+	    ret = ctx->acdbcal(ctx->acdb_id, 0 /* RX path */, 0x11130 /* default app_type */, ctx->samplerate);
+	    log_info("acdbcal returned %d", ret);
+	    ret = 0;
+        }
+#endif
 	if(priv->nv_start) set_mixer_controls(ctx, priv->nv_start);
 	else log_info("no start controls for this device");
 
@@ -628,7 +647,6 @@ int alsa_start(playback_ctx *ctx)
 	log_info("Period size: min=%d\tmax=%d", persz_min, persz_max);
 	log_info("    Periods: min=%d\tmax=%d", periods_min, periods_max);
 
-
 	if(!priv->is_mmapped && ctx->block_min == ctx->block_max 
 		&& (ctx->block_min >> ctx->rate_dec) <= persz_max 
 		&& (ctx->block_min >> ctx->rate_dec) >= persz_min
@@ -646,8 +664,8 @@ int alsa_start(playback_ctx *ctx)
 		goto hwsetup_done;
 	    }
 	    log_info("failed to find matching periods for source block_size");
-	} else log_info("skip kernel buffer size matching");
-
+	} else log_info("skip kernel buffer size matching, reason: %d-%d, %d %d", 
+	ctx->block_min, ctx->block_max, persz_min, persz_max);
 
 #ifndef ANDROID	
 	priv->chunks = forced_chunks ? forced_chunks : periods_max;
@@ -819,7 +837,7 @@ filled with silence. Note: silence_threshold must be set to zero.  */
             ret = LIBLOSSLESS_ERR_AU_SETCONF;
             goto err_exit;
         }
-#if 1
+
     if(ctx->block_write)	
 	for(k = 0; k < priv->chunks; k++) {
 	    i = write(priv->fd, priv->buf, priv->buf_bytes);
@@ -829,7 +847,7 @@ filled with silence. Note: silence_threshold must be set to zero.  */
 		goto err_exit;
 	    }
 	}
-#endif
+
 	if(priv->is_mmapped) {
 	    priv->sync_ptr = calloc(1, sizeof(*priv->sync_ptr));
 	    if(!priv->sync_ptr) {
@@ -919,7 +937,7 @@ ssize_t alsa_write(playback_ctx *ctx, void *buf, size_t count)
 	    log_err("frames count %d larger than period size %d", (int) count, priv->chunk_size);
 	    count = priv->chunk_size;
 	} else if(count < priv->chunk_size) {
-	    log_info("short buffer %ld < %d, must be EOF", count, priv->chunk_size);	
+	    log_info("short buffer %d < %d, must be EOF", (int) count, priv->chunk_size);	
 	    if(buf) {
 		memcpy(priv->buf, buf, count * ctx->channels * priv->format->phys_bits/8);
 	    	xf.buf = priv->buf;	
@@ -1140,7 +1158,7 @@ bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op)
 	if(!nvd && !nva) {
 	    log_err("don't know how to control volume of this card");
 	    return false;
-	}	
+	}
 	if(ctx->ctls == 0)  {
 	    log_err("no mixer");
 	    return false;	
@@ -1355,8 +1373,17 @@ int set_mixer_controls(playback_ctx *ctx, struct nvset *nv)
 		switch(ctl->type) {
 		    case SNDRV_CTL_ELEM_TYPE_BOOLEAN:
 		    case SNDRV_CTL_ELEM_TYPE_INTEGER:
-			if(ctl->count == 1) ev.value.integer.value[0] = atoi(nv->value);
-			else for(k = 0, c = (char *) nv->value; k < ctl->count; k++, c = ce) {
+			if(ctl->count == 1) { 
+			    ev.value.integer.value[0] = atoi(nv->value);
+			} else if(nv->flags & NV_FLAG_DUP) {
+			    errno = 0; 	
+			    val = strtol((char *) nv->value, 0, 0);
+			    if(errno != 0) {
+				log_err("bad value for NV_FLAG_DUP");
+				break;
+			    }
+			    for(k = 0; k < ctl->count; k++) ev.value.integer.value[k] = (int) val;
+		        } else for(k = 0, c = (char *) nv->value; k < ctl->count; k++, c = ce) {
 			    errno = 0; ce = 0;
 			    val = strtol(c, &ce, 0);
 			    if(errno != 0 || !ce) {

@@ -13,7 +13,7 @@ extern "C" {
 	const char *name;
 	const char *value;
 	const char *append;
-	int min, max;
+	int min, max, flags;
 	struct nvset *next;	
     };
     static const struct {
@@ -67,6 +67,8 @@ class MixXML : public XMLDocument {
 		return get_pairs(e);	
 	}
 }; 
+
+
 
 struct nvset *MixXML::get_pairs(XMLElement *pe)
 {
@@ -198,7 +200,7 @@ struct nvset *DeviceXML::get_controls(XMLElement *e)
 {
     XMLElement *x, *r;
     struct nvset *first = 0, *nv;
-    const char *name, *value, *min, *max;	
+    const char *name, *value, *min, *max, *flags;	
     for(x = e->FirstChildElement(); x; x = x->NextSiblingElement()) {
 	if(strcmp(x->Name(), "ctl") == 0) {
 	    name = x->Attribute("name");
@@ -218,6 +220,8 @@ struct nvset *DeviceXML::get_controls(XMLElement *e)
 		nv->min = 0;
 		nv->max = 0;
 	    }	
+	    flags = x->Attribute("flags");
+	    nv->flags = flags ? (int) strtoul(flags,0,0) : 0;	
 	    nv->name = name;
 	    nv->value = value;
 	    nv->append = x->Attribute("append");
@@ -376,5 +380,29 @@ extern "C" struct perset *xml_dev_find_persets(void *xml)
     return ret;	
 }
 
+#ifdef ACDB_TEST
+extern "C" int xml_get_acdb_id(const char *file, const char *devname) 
+{
+    XMLDocument *doc = new XMLDocument;
+    XMLElement *root, *sect, *elm;
+    int ret = -1;
 
+	if(doc->LoadFile(file) != 0) goto done;
+	root = doc->FirstChildElement();
+	if(!root || strcmp(root->Name(), "audio_platform_info") != 0) goto done;
+	for(sect = root->FirstChildElement(); sect; sect = sect->NextSiblingElement()) {
+	    if(strcmp(sect->Name(), "acdb_ids") != 0) continue;
+	    for(elm = sect->FirstChildElement(); elm; elm = elm->NextSiblingElement()) {	
+		if(strcmp(elm->Name(), "device") == 0 
+			&& elm->Attribute("name", devname) && elm->Attribute("acdb_id")) {
+		    ret = atoi(elm->Attribute("acdb_id"));
+		    break;	
+		}
+	    }
+	}
+    done:
+	delete doc;
+	return ret;
+}
+#endif
 

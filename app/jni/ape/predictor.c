@@ -21,9 +21,11 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110, USA
 
 */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include <inttypes.h>
-#include <string.h>
 
 #include "parser.h"
 #include "predictor.h"

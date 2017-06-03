@@ -133,12 +133,13 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	}
 
 	lseek(fd, 0, SEEK_SET);	
+
 	cur_map_off = start_offset & ~pg_mask;
 	cur_map_len = (flen - cur_map_off) > MMAP_SIZE ? MMAP_SIZE : flen - cur_map_off;
 
 	mm = mmap(0, cur_map_len, PROT_READ, MAP_SHARED, fd, cur_map_off);
 	if(mm == MAP_FAILED) {
-	    log_err("mmap failed after seek: %s", strerror(errno));
+	    log_err("mmap failed after seek: flen=%lx [%s]", flen, strerror(errno));
 	    ret = LIBLOSSLESS_ERR_INIT;
 	    goto err_exit;
 	}
@@ -269,7 +270,7 @@ int alsa_play_offload(playback_ctx *ctx, int fd, off_t start_offset)
 	    }
 	do_it_again:
 	    state = sync_state(ctx, __func__);	
-	    if(state != STATE_PLAYING && state != STATE_STOPPING)  {
+	    if(state != STATE_PLAYING)  {
 		log_info("gather I should stop");
 		break;				
 	    }
@@ -398,7 +399,7 @@ int parse_mp3_header(struct mp3_header *header, int *num_channels,
 
 	/* check sync bits */
 	if ((header->sync & MP3_SYNC) != MP3_SYNC) {
-		fprintf(stderr, "Error: Can't find sync word\n");
+		log_err("Error: Can't find sync word");
 		return -1;
 	}
 	ver_idx = (header->sync >> 11) & 0x03;
