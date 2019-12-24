@@ -92,7 +92,7 @@ int audio_stop(playback_ctx *ctx)
     log_info("context %p in state %d", ctx, in_state);
 
     if(in_state == STATE_STOPPED) {
-	/* log_err("stopped already"); */
+	log_info("stopped already");
 	pthread_mutex_unlock(&ctx->mutex);
 	return 0;
     }
@@ -412,8 +412,8 @@ static void *audio_write_thread(void *a)
 #ifdef TEST_TIMING
 	if(gets && writes) log_info("avg get=%lld write=%lld", us_get/gets, us_write/writes);
 #endif
-	ctx->audio_thread = 0;
 	playback_complete(ctx, __func__);
+	ctx->audio_thread = 0;
     return 0;	
 }
 
@@ -559,6 +559,21 @@ jboolean audio_increase_volume(JNIEnv *env, jobject obj, jlong jctx)
     return true;
 }
 
+#ifdef ANDROID
+static jboolean audio_on_screenoff(JNIEnv *env, jobject obj, jlong jctx)
+{
+    playback_ctx *ctx = (playback_ctx *) jctx;	
+    if(!ctx) {
+	log_err("no context");
+	return false;
+    }
+    pthread_mutex_lock(&ctx->mutex);
+    alsa_on_screenoff(ctx);
+    pthread_mutex_unlock(&ctx->mutex);
+    return true;	
+}
+#endif
+
 extern jint audio_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, jint format, jint start) 
 {
     int ret = 0;
@@ -691,6 +706,7 @@ static JNINativeMethod methods[] = {
  { "audioStop", "(J)Z", (void *) audio_stop_exp },
  { "audioPause", "(J)Z", (void *) audio_pause },
  { "audioResume", "(J)Z", (void *) audio_resume },
+ { "audioOnScreenOff", "(J)Z", (void *) audio_on_screenoff },
  { "audioGetDuration", "(J)I", (void *) audio_get_duration },
  { "audioGetCurPosition", "(J)I", (void *) audio_get_cur_position },
  { "audioDecreaseVolume", "(J)Z", (void *) audio_decrease_volume },

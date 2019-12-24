@@ -13,7 +13,7 @@ $(SIGNED_APK):	$(LIB) $(JAVA_SRC)
 
 $(LIB): $(LIB_SRC)
 	@echo "building library"
-	(cd app/jni; ndk-build; cd ../..)
+	(cd app/jni; /mnt/d/android/android-ndk-r17b/ndk-build; cd ../..)
 
 install: $(SIGNED_APK)
 	adb uninstall net.avs234.alsaplayer

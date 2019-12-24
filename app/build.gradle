@@ -17,7 +17,7 @@ repositories {
 }
 
 android {
-    compileSdkVersion 21
+    compileSdkVersion 24
 //  buildToolsVersion "21.1.2"
 //  buildToolsVersion "23.0.0 rc3"
   buildToolsVersion "25.0.2"
@@ -33,8 +33,8 @@ android {
 
     defaultConfig {
         applicationId "net.avs234.alsaplayer"
-        minSdkVersion 16
-        targetSdkVersion 21
+        minSdkVersion 24
+        targetSdkVersion 25
         versionCode 1
         versionName "1.0"
         signingConfig signingConfigs.release
@@ -42,8 +42,8 @@ android {
 
     buildTypes {
         release {
-            runProguard true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+//          runProguard true
+//          proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 
@@ -61,6 +61,8 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile 'com.android.support:support-v4:21.0.3'
-    compile 'com.android.support:appcompat-v7:21.0.3'
+//    compile 'com.android.support:support-v4:21.0.3'
+//    compile 'com.android.support:appcompat-v7:21.0.3'
+    compile 'com.android.support:support-v4:24.0.0'
+    compile 'com.android.support:appcompat-v7:24.0.0'
 }

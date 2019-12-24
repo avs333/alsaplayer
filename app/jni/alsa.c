@@ -76,10 +76,10 @@ static int init_mixer_controls(playback_ctx *ctx, int card);
 static char cards_file[] = "/sdcard/.alsaplayer/cards.xml";
 #else
 static char cards_file[PATH_MAX];
+#endif
 char *ext_cards_file = 0;
 int forced_chunks = 0, forced_chunk_size = 0;
 int force_mmap = 0, force_ring_buffer = 0;
-#endif
 
 /* free per track params */
 static void alsa_close(playback_ctx *ctx) 
@@ -312,7 +312,6 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	if(!xml_dev) log_info("warning: no settings for card %d (%s) device %d in %s", card, priv->card_name, device, cards_file); 
 	else {
 	    struct nvset *nv1 = 0, *nv2 = 0, *nv = 0; 
-	    int hset = 0;
 	    priv->is_offload = xml_dev_is_offload(xml_dev);	
 	    priv->is_mmapped = xml_dev_is_mmapped(xml_dev);	
 	    log_info("loaded settings for card %d device %d [offload=%d mmap=%d]", card, device, 
@@ -333,6 +332,7 @@ int alsa_select_device(playback_ctx *ctx, int card, int device)
 	        else log_info("Mixer XML file %s opened", mpf);
 	    }
 	    if(ctx->xml_mixp) {
+		int hset = 0;
 		priv->nv_start = xml_mixp_find_control_set(ctx->xml_mixp, "headphones");
 		if(!priv->nv_start) {
 		    priv->nv_start = xml_mixp_find_control_set(ctx->xml_mixp, "headset");
@@ -1144,6 +1144,25 @@ bool alsa_resume(playback_ctx *ctx)
 {
    return alsa_start(ctx) == 0;
 }
+
+#ifdef ANDROID
+bool alsa_on_screenoff(playback_ctx *ctx)
+{
+    alsa_priv *priv;
+    if(!ctx || !ctx->alsa_priv || ctx->state != STATE_PLAYING) {
+	log_err("no context/bad state");
+	return false;
+    }
+    priv = (alsa_priv *) ctx->alsa_priv;
+    if(!priv->nv_start) {
+	log_err("no startup controls");
+	return false;
+    }
+    log_info("%s: resetting controls", __func__);	
+    set_mixer_controls(ctx, priv->nv_start);
+    return true;
+}
+#endif
 
 bool alsa_set_volume(playback_ctx *ctx, vol_ctl_t op) 
 {

@@ -397,11 +397,6 @@ int parse_mp3_header(struct mp3_header *header, int *num_channels,
 {
 	int ver_idx, mp3_version, layer, bit_rate_idx, sample_rate_idx, channel_idx;
 
-	/* check sync bits */
-	if ((header->sync & MP3_SYNC) != MP3_SYNC) {
-		log_err("Error: Can't find sync word");
-		return -1;
-	}
 	ver_idx = (header->sync >> 11) & 0x03;
 	mp3_version = ver_idx == 0 ? MPEG25 : ((ver_idx & 0x1) ? MPEG1 : MPEG2);
 	layer = 4 - ((header->sync >> 9) & 0x03);
@@ -456,26 +451,44 @@ int mp3_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 	    goto done;  
 	}	
 	if(memcmp(&hdr, "ID3", 3) == 0) {
+	    char lame[512], *lm;
+	    int k;	
 	    lseek(fd, 0, SEEK_SET);
 	    if(read(fd, &tmp, 10) != 10) {
-		log_err("read error for file %s", file);	
+		log_err("error reading id3 tag for %s", file);	
 		ret = LIBLOSSLESS_ERR_IO_READ;
-		goto done;  
+		goto done;
 	    }	
 	    offs = tmp[6] << 21;
 	    offs += tmp[7] << 14;
 	    offs += tmp[8] << 7;
 	    offs += tmp[9];
-	    if(lseek(fd, offs, SEEK_CUR) == (off_t) -1) {
+	    offs += 10;	
+	    log_info("seeking to %lx",(long) offs);	    
+	    if(lseek(fd, offs, SEEK_SET) == (off_t) -1) {
 		log_err("broken ID3 header in %s", file);
 		ret = LIBLOSSLESS_ERR_DECODE;
 		goto done;
 	    }
-	    if(read(fd, &hdr, sizeof(hdr)) != sizeof(hdr)) {
-		log_err("file %s unreadable", file);	
+	    if(read(fd, &lame, sizeof(lame)) != sizeof(lame)) {
+		log_err("%s: file too short, or I/O error", file);	
 		ret = LIBLOSSLESS_ERR_IO_READ;
 		goto done;  
-	    }	
+	    }
+	    for(k = 0, lm = lame; *lm == 0 && k < sizeof(lame) - sizeof(hdr); k++, lm++) ;
+	    if(*lm == 0) {
+		log_err("mp3 sync failed");
+		ret = LIBLOSSLESS_ERR_IO_READ;
+		goto done;  
+	    }
+	    log_info("%d bytes of junk skipped at offset %ld", k, (long) offs);
+	    offs += k;	
+	    memcpy(&hdr, lm, sizeof(hdr));
+	} 
+	if((hdr.sync & MP3_SYNC) != MP3_SYNC) {
+		log_err("failed to sync with mp3 stream");
+	    	ret = LIBLOSSLESS_ERR_NOFILE;
+		goto done;
 	}
 	if(parse_mp3_header(&hdr, &ctx->channels, &ctx->samplerate, &ctx->bitrate) == -1) {
 	    log_err("error parsing mp3 headers for %s", file);
@@ -488,8 +501,9 @@ int mp3_play(JNIEnv *env, jobject obj, playback_ctx *ctx, jstring jfile, int sta
 		ret = LIBLOSSLESS_ERR_OFFSET;
 		goto done;
 	    }	
-	    offs = (start * flen)/ctx->track_time;
-	} else offs = 0;
+	    offs += (start * flen)/ctx->track_time;
+	}
+
 	update_track_time(env, obj, ctx->track_time);
 	log_info("switching to offload playback");
 	ret = alsa_play_offload(ctx, fd, offs);

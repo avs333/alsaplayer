@@ -5,27 +5,29 @@
 ifdef android
 # Tested with Android NDK r10d toolchain. Tweak this if you have other compiler/NDK.
 GCCVER=4.9
-ANDPLAT=android-21
+ANDPLAT=android-24
 HOSTARCH=$(shell uname -m)
 NDK ?= $(shell dirname $(shell readlink -e $(shell which ndk-build)))
 
 ifeq ($(android), 32)
-SYSROOT=$(NDK)/platforms/$(ANDPLAT)/arch-arm
+SYSROOT=$(NDK)/sysroot #/platforms/$(ANDPLAT)/arch-arm
+SYSINC=$(NDK)/sysroot/usr/include/arm-linux-androideabi 
 BINPATH=$(NDK)/toolchains/arm-linux-androideabi-$(GCCVER)/prebuilt/linux-$(HOSTARCH)/bin
 STL=$(NDK)/sources/cxx-stl/gnu-libstdc++/$(GCCVER)
 CC=$(BINPATH)/arm-linux-androideabi-gcc
 CXX=$(BINPATH)/arm-linux-androideabi-g++
-CFLAGS += --sysroot=$(SYSROOT) -Wl,-pie -march=armv7-a -DANDLINUX -DTEST8000
+CFLAGS += --sysroot=$(SYSROOT) -isystem $(SYSINC) -Wl,-pie -march=armv7-a -DANDLINUX -DTEST8000
 CXXFLAGS += -I$(STL)/include -I$(STL)/libs/armeabi-v7a/include
 LDFLAGS += -L$(STL)/libs/armeabi-v7a -lgnustl_static
 LDFLAGS += -Llib -lselinux
 else
-SYSROOT=$(NDK)/platforms/$(ANDPLAT)/arch-arm64
+SYSROOT=$(NDK)/sysroot #/platforms/$(ANDPLAT)/arch-arm64
+SYSINC=$(NDK)/sysroot/usr/include/aarch64-linux-android 
 BINPATH=$(NDK)/toolchains/aarch64-linux-android-$(GCCVER)/prebuilt/linux-$(HOSTARCH)/bin
 STL=$(NDK)/sources/cxx-stl/gnu-libstdc++/$(GCCVER)
 CC=$(BINPATH)/aarch64-linux-android-gcc
 CXX=$(BINPATH)/aarch64-linux-android-g++
-CFLAGS += --sysroot=$(SYSROOT) -Wl,-pie -march=armv8-a -DANDLINUX
+CFLAGS += --sysroot=$(SYSROOT) -isysem $(SYSINC) -Wl,-pie -march=armv8-a -DANDLINUX
 CXXFLAGS += -I$(STL)/include -I$(STL)/libs/arm64-v8a/include
 LDFLAGS += -L$(STL)/libs/arm64-v8a -lgnustl_static
 LDFLAGS += -Llib -lselinux64 -llog64

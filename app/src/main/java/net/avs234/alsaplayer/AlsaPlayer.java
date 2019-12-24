@@ -71,7 +71,11 @@ import net.avs234.alsaplayer.iconifiedlist.IconifiedTextListAdapter;
 
 
 import android.support.v4.os.EnvironmentCompat;
-
+import android.support.v4.content.ContextCompat;
+import android.support.v4.app.ActivityCompat;
+import android.content.pm.PackageManager;
+import android.Manifest;
+ 
 public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	
     	// Current directory **OR** current cue/playlist file
@@ -237,10 +241,11 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     				if(s == null) {
   				    if(prefs.last_path == null || !(cur_path = new File(prefs.last_path)).exists()) {
     		           		// 	cur_path = Marshmallow ? new File("/sdcard") : Environment.getExternalStorageDirectory();
-					cur_path = new File(InternalStorage);
+					// cur_path = new File(InternalStorage);
+					cur_path = Environment.getExternalStorageDirectory();
 				    }
 	    		            if(!setAdapter(cur_path)) {
-   	 		            	log_err("cannot set default adapter!!!" + cur_path);
+   	 		            	log_err("cannot set default adapter for " + cur_path);
     			            	if(!setAdapter(new File("/"))) errExit(R.string.strCantSetup);
     			            }
     		         	    fileList.setSelection(0);
@@ -461,6 +466,7 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 			}
     	}
 
+/*
 	@Override
 	public boolean dispatchKeyEvent(KeyEvent event) {
 	    if(srv == null) return super.dispatchKeyEvent(event);
@@ -488,6 +494,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	        return super.dispatchKeyEvent(event);
 	    }
 	}
+*/
+
 
     	// Load the server playlist with contents of arrays, and play starting from the k-th item @ time start. 
     	
@@ -993,6 +1001,41 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
 	    return true;	
 	}
 
+	static final int  PERM_PHONE	= 0x1;
+	static final int  PERM_ASETT	= 0x2;
+	static final int  PERM_RSTORAGE	= 0x4;
+	static final int  PERM_WSTORAGE	= 0x8;
+
+	void get_permissions() {
+		if(ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+				        != PackageManager.PERMISSION_GRANTED) {
+			ActivityCompat.requestPermissions(this,
+		                new String[]{Manifest.permission.READ_PHONE_STATE}, PERM_PHONE);
+		}
+		if(ContextCompat.checkSelfPermission(this, Manifest.permission.MODIFY_AUDIO_SETTINGS)
+				        != PackageManager.PERMISSION_GRANTED) {
+			ActivityCompat.requestPermissions(this,
+		                new String[]{Manifest.permission.MODIFY_AUDIO_SETTINGS}, PERM_ASETT);
+		}
+		if(ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+				        != PackageManager.PERMISSION_GRANTED) {
+			ActivityCompat.requestPermissions(this,
+		                new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, PERM_RSTORAGE);
+		}
+		if(ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+				        != PackageManager.PERMISSION_GRANTED) {
+			ActivityCompat.requestPermissions(this,
+		                new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERM_WSTORAGE);
+		}
+	}
+
+	private int perms_granted = 0;
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
+		if(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) perms_granted |= requestCode;
+		log_msg("permission " + requestCode + " granted");
+	}
 
     	@Override
         public void onCreate(Bundle savedInstanceState) {
@@ -1000,6 +1043,8 @@ public class AlsaPlayer extends ActionBarActivity implements Comparator<File> {
     		super.onCreate(savedInstanceState);
 
             Intent ii = getIntent();
+
+	    get_permissions(); 		
 
 	    InternalStorage = System.getenv("EXTERNAL_STORAGE");
 	    	

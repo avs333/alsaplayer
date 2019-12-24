@@ -26,14 +26,25 @@ import android.os.Process;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.os.Handler;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.KeyEvent;
 
+import android.database.ContentObserver;
+
 import eu.chainfire.libsuperuser.Shell;
 import net.avs234.alsaplayer.util.AssetsUtils;
+// import net.avs234.alsaplayer.SettingsContentObserver;
+// import android.support.v4.app.NotificationCompat.Builder;
 
+import android.content.ComponentName;
+import android.support.v4.media.VolumeProviderCompat;
+import android.support.v4.media.session.MediaSessionCompat; 
+import android.support.v4.media.session.PlaybackStateCompat; 
+import android.media.MediaDataSource;
+import android.os.AsyncTask;
 
 /*
 TODO: 
@@ -54,6 +65,7 @@ public class AlsaPlayerSrv extends Service {
 	public static native boolean	audioStop(long ctx);
 	public static native boolean	audioPause(long ctx);
 	public static native boolean	audioResume(long ctx);
+	public static native boolean	audioOnScreenOff(long ctx);
 	
 	public static native int	audioGetDuration(long ctx);
 	public static native int	audioGetCurPosition(long ctx);
@@ -132,7 +144,10 @@ public class AlsaPlayerSrv extends Service {
 	public static int curTrackStart = 0;
 	private static int last_cue_start = 0;
 	private static int total_cue_len = 0;
-	
+
+	private VolumeProviderCompat vol_provider = null;
+	private MediaSessionCompat media_session = null;
+
 	// Callback to be called from native code
 
 	public static void updateTrackLen(int time) {
@@ -148,8 +163,8 @@ public class AlsaPlayerSrv extends Service {
 	private static final RemoteCallbackList<IAlsaPlayerSrvCallback> cBacks = new RemoteCallbackList<IAlsaPlayerSrvCallback>();
 	
 	private void informTrack(String s, boolean error) {
-		final int k = cBacks.beginBroadcast();
-		for (int i=0; i < k; i++) {
+	    final int k = cBacks.beginBroadcast();
+	    for (int i=0; i < k; i++) {
 	         try { 
 	            	if(!error) {
 	            		cBacks.getBroadcastItem(i).playItemChanged(false,s);
@@ -184,14 +199,21 @@ public class AlsaPlayerSrv extends Service {
 	private int fck_start;
 	private boolean isPrepared;
 	public int extPlay(String file, int start) {
+	 	final boolean zerofile = (file == null);
 		try {
 			isPrepared = false;
-			if(mplayer == null) {
-				mplayer = new MediaPlayer();
-			}
 			fck_start = start;
+			if(file != null) {
+			    mplayer = new MediaPlayer();
+			    mplayer.setDataSource(file);
+			} else {
+			    mplayer = MediaPlayer.create(getApplicationContext(), R.raw.silence);
+			}
 			if(mplayer == null) return LIBLOSSLESS_ERR_NOCTX;
-			mplayer.setDataSource(file);
+			if(file == null) {
+			    mplayer.setVolume(0,0);
+			    mplayer.setLooping(true);
+			}
 			mplayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
 				public boolean onError(MediaPlayer mp, int what, int extra)  {
 					synchronized(mplayer_lock) {
@@ -215,22 +237,26 @@ public class AlsaPlayerSrv extends Service {
 			});
 			mplayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
 				public void onPrepared(MediaPlayer mp) {
-					isPrepared = true;
+				    isPrepared = true;
+				    if(!zerofile) {	
 					if(fck_start != 0) mplayer.seekTo(fck_start*1000);
 					curTrackLen = mplayer.getDuration()/1000;
 					mplayer.start();
+				    }	
 				}
 			});
-			
-			mplayer.prepare();
+			if(file == null) mplayer.start();			
+			else mplayer.prepare();
 			//SystemClock.sleep(250);
 			//if(!mplayer.isPlaying()) return LIBLOSSLESS_ERR_INV_PARM;
+			if(file == null) log_msg("silence: exited");
 			synchronized(mplayer_lock) {
 				mplayer_lock.wait();
 			}
 		} catch (Exception e) { 
-       	 	log_err("Exception in extPlay(): " + e.toString());
-       	 	return LIBLOSSLESS_ERR_INV_PARM;
+	       	 	log_err("Exception in extPlay(): " + e.toString());
+			e.printStackTrace();
+	       	 	return LIBLOSSLESS_ERR_INV_PARM;
 		} finally  {
 			synchronized(mplayer_lock) {
 				if(mplayer != null) {
@@ -243,6 +269,7 @@ public class AlsaPlayerSrv extends Service {
 		return 0;
 	}
 
+
 	private static final int NOTIFY_ID = R.drawable.icon;	
 	private void notify(int icon, String s) {
 		if(nm == null) return;
@@ -250,14 +277,26 @@ public class AlsaPlayerSrv extends Service {
 			nm.cancel(NOTIFY_ID);
 			return;
 		}
-		final Notification notty = new Notification(icon, s, System.currentTimeMillis());
 		Intent intent = new Intent();
 		intent.setAction("android.intent.action.MAIN");
 		intent.addCategory("android.intent.category.LAUNCHER");
 		intent.setClass(this, AlsaPlayer.class);
 		intent.setFlags(0x10100000);
-		notty.setLatestEventInfo(getApplicationContext(), "alsaPlayer", s, 
-					PendingIntent.getActivity(this, 0, intent, 0));
+//		final Notification notty = new Notification(icon, s, System.currentTimeMillis());	// 1
+//		notty.setLatestEventInfo(getApplicationContext(), "alsaPlayer", s, 			// 2
+//					PendingIntent.getActivity(this, 0, intent, 0));
+
+		final Notification notty = new Notification.Builder(this)
+			.setSmallIcon(icon).setTicker(s).setWhen(System.currentTimeMillis())		// 1
+			.setContentTitle("alsaPlayer").setContentText(s).setContentIntent(PendingIntent.getActivity(this, 0, intent, 0)) // 2
+			.build();
+
+
+
+//		Notification.Action na = new Notification.Action.Builder(icon, "alsaPlayer", PendingIntent.getActivity(this, 0, intent, 0)).build();
+//		Notification notty = new NotificationCompat.Builder(this).
+//			setContentTitle("alsaPlayer").setContentText(s).setSmallIcon(icon).setActions(na).build();
+
 		nm.notify(NOTIFY_ID,notty);
 	}
 	
@@ -408,11 +447,40 @@ public class AlsaPlayerSrv extends Service {
 			if(cur_mode == MODE_NONE) {
 				do {
 					SystemClock.sleep(200);
-		        } while (!isPrepared);
+			        } while (!isPrepared);
 				if(mplayer != null && isPrepared) return mplayer.getDuration()/1000;
 			} 
 			if(ctx == 0) return 0;
 			return audioGetDuration(ctx);
+		}
+
+		private class SilentPlayerTask extends AsyncTask<String,Integer,String> {
+			@Override
+			protected String doInBackground(String... args) {
+			    log_msg("starting silence");	
+			    int k = extPlay(null, 0);	
+			    log_msg("silence terminated with code " + k);	
+			    return "done";	
+			}
+		/*	@Override
+			protected void onPostExecute( String dummy ) {
+			    this.onCancelled();
+			}  */
+			@Override
+			public void onCancelled() {
+			     log_msg("silence cancelled");	
+			}			
+		}
+
+		private SilentPlayerTask sp_task = null;
+	
+		int alsaPlay(String file, int format, int start) {
+		    cur_mode = MODE_ALSA;
+	//	    sp_task = new SilentPlayerTask();
+	//	    sp_task.execute(); 
+		    if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
+		    if(ctx == 0) return 1;
+		    return audioPlay(ctx, file, format, start);
 		}
 						
 		private class PlayThread extends Thread {
@@ -431,7 +499,6 @@ public class AlsaPlayerSrv extends Service {
 						curTrackStart = 0;
 						last_cue_start = 0;
 						total_cue_len = 0;
-						
 						if(names[cur_pos] != null) {	// this is CUE track
 							log_msg("track name = " + names[cur_pos]);
 							if(cur_pos + 1 < files.length) {
@@ -454,25 +521,13 @@ public class AlsaPlayerSrv extends Service {
 							informTrack(cf,false);
 						}
 						if(files[cur_pos].endsWith(".flac") || files[cur_pos].endsWith(".FLAC")) {
-							cur_mode = MODE_ALSA;
-							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
-							if(ctx == 0) k = 1;
-							else k = audioPlay(ctx, files[cur_pos], FORMAT_FLAC, times[cur_pos]+cur_start);
+							k = alsaPlay(files[cur_pos], FORMAT_FLAC, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".ape") || files[cur_pos].endsWith(".APE")) {
-							cur_mode = MODE_ALSA;
-							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
-							if(ctx == 0) k = 1;
-							else k = audioPlay(ctx, files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
+							k = alsaPlay(files[cur_pos], FORMAT_APE, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".wav") || files[cur_pos].endsWith(".WAV")) {
-							cur_mode = MODE_ALSA;
-							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
-							if(ctx == 0) k = 1;
-							else k = audioPlay(ctx, files[cur_pos], FORMAT_WAV, times[cur_pos]+cur_start);
+							k = alsaPlay(files[cur_pos], FORMAT_WAV, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".m4a") || files[cur_pos].endsWith(".M4A")) {
-							cur_mode = MODE_ALSA;
-							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
-							if(ctx == 0) k = 1;
-							else k = audioPlay(ctx, files[cur_pos], FORMAT_ALAC, times[cur_pos]+cur_start);
+							k = alsaPlay(files[cur_pos], FORMAT_ALAC, times[cur_pos]+cur_start);
 						} else if(files[cur_pos].endsWith(".mp3") || files[cur_pos].endsWith(".MP3")) {
 							if(ctx == 0) ctx = audioInit(0, cur_card, cur_device);
 							boolean offload = (ctx != 0) ? inOffloadMode(ctx) : false;
@@ -480,8 +535,7 @@ public class AlsaPlayerSrv extends Service {
 								cur_mode = MODE_NONE;	
 								k = extPlay(files[cur_pos],times[cur_pos]+cur_start);
 							} else {
-								cur_mode = MODE_ALSA;
-								k = audioPlay(ctx, files[cur_pos], FORMAT_MP3, times[cur_pos]+cur_start);
+								k = alsaPlay(files[cur_pos], FORMAT_MP3, times[cur_pos]+cur_start);
 							}
 			              		} else {
 							cur_mode = MODE_NONE;	
@@ -527,7 +581,7 @@ public class AlsaPlayerSrv extends Service {
 		public boolean stop() {
 			running = false;
 			log_msg("stop()");
-		    nm.cancel(NOTIFY_ID);
+			nm.cancel(NOTIFY_ID);
 			if(th != null) { 
 				int i = Process.getThreadPriority(Process.myTid()); 
 				int tid = th.getThreadId();
@@ -541,13 +595,16 @@ public class AlsaPlayerSrv extends Service {
 				cup = null;
 				log_msg(String.format("stop(): terminating thread %d from %d", tid, Process.myTid()));
 				Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
-				if(mplayer == null) {
+				if(cur_mode == MODE_ALSA) {
 					log_msg("stopping context " + String.format("0x%x", ctx));
 					audioStop(ctx);
-				} else {
-					synchronized(mplayer_lock) {
-						mplayer_lock.notify();
-					}
+				}
+				synchronized(mplayer_lock) {	// always
+					mplayer_lock.notify();
+				}
+				if(sp_task != null) {
+					sp_task.cancel(true);
+					sp_task = null;
 				}
 				if(paused) paused = false;
 				try {
@@ -601,7 +658,7 @@ public class AlsaPlayerSrv extends Service {
 			log_msg("pause()");
 			if(files == null || paused) return false;
 				
-			if(mplayer != null) {
+			if(cur_mode == MODE_NONE) {
 				paused = true;
 				try {
 					mplayer.pause();					
@@ -622,7 +679,7 @@ public class AlsaPlayerSrv extends Service {
 		public boolean resume() {
 			log_msg("resume()");
 			if(files == null || !paused) return false;
-			if(mplayer != null) {
+			if(cur_mode == MODE_NONE) {
 				paused = false;
 				try {
 					mplayer.start();					
@@ -644,7 +701,7 @@ public class AlsaPlayerSrv extends Service {
 		public boolean dec_vol() {
 			log_msg("dec_vol()");
 			if(files == null || !running) return false;
-			if(mplayer != null) return true;
+			if(cur_mode == MODE_NONE) return true;
 			int i = Process.getThreadPriority(Process.myTid()); 
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
 			boolean ret = audioDecreaseVolume(ctx);
@@ -654,7 +711,7 @@ public class AlsaPlayerSrv extends Service {
 		public boolean inc_vol() {
 			log_msg("inc_vol()");
 			if(files == null || !running) return false;
-			if(mplayer != null) return true;
+			if(cur_mode == MODE_NONE) return true;
 			int i = Process.getThreadPriority(Process.myTid()); 
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
 			boolean ret = audioIncreaseVolume(ctx);
@@ -670,6 +727,9 @@ public class AlsaPlayerSrv extends Service {
 			}
 			log_msg("failed to init card " + card + ":" + device);
 			return false;
+		}
+		public int get_mode() {
+		    return cur_mode;
 		}
 	}
 	
@@ -737,19 +797,76 @@ public class AlsaPlayerSrv extends Service {
 	        registerHeadsetReciever();
 	        if(wakeLock == null) {
 	        	PowerManager pm = (PowerManager)getSystemService(Context.POWER_SERVICE);
-	        	wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, this.getClass().getName());
+	        	wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+				//	android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, 
+					this.getClass().getName());
 	        	wakeLock.setReferenceCounted(false);
 	        }
 	        plist = new AlsaPlayerSrv.playlist();
 	        launcher = new Launcher();
 	        if(nm == null) nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 	        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
-	        //if(!libInit(Build.VERSION.SDK_INT)) {
+
 	        if(!libInit(Integer.parseInt(Build.VERSION.SDK))) {	        	
 	        	log_err("cannot initialize atrack library");
 	        	stopSelf();
 	        }
+
 		AssetsUtils.loadAsset(this, "cards.xml", ".alsaplayer/cards.xml", false);
+
+	/*
+		AudioManager aman = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+		ComponentName receiver = new ComponentName(getPackageName(), MediaButtonIntentReceiver.class.getName());
+		aman.registerMediaButtonEventReceiver(receiver);
+		media_session = new MediaSessionCompat(this, "AlsaPlayerSrv", receiver, null);
+	*/
+
+		media_session = new MediaSessionCompat(this, "AlsaPlayerSrv");
+
+
+		media_session.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS 
+			| MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+
+		media_session.setCallback(new MediaSessionCompat.Callback(){ 
+	/*	    @Override
+		    public void onPlay() { log_msg("onPlay callback"); }
+		    @Override
+		    public void onPause() { log_msg("onPause callback"); }
+		    @Override
+		    public void onStop() { log_msg("onStop callback"); } */
+		    @Override
+		    public boolean onMediaButtonEvent(Intent mediaButtonIntent) { 
+			log_msg("onMediaButtonEvent callback received");
+			return false; 
+		    }
+		});
+
+	//	PlaybackStateCompat pstate = null;
+	//	PlaybackStateCompat.Builder cbl = new PlaybackStateCompat.Builder();
+
+	//	cbl.setActions(PlaybackStateCompat.ACTION_PLAY|PlaybackStateCompat.ACTION_PLAY_PAUSE|PlaybackStateCompat.ACTION_STOP);
+
+	//	cbl.setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0);
+	//	pstate = cbl.build();
+
+		PlaybackStateCompat pstate = new PlaybackStateCompat.Builder()
+			.setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0).build();	
+
+		media_session.setPlaybackState(pstate);
+	//	log_msg("session created, state: " + pstate.getState());
+
+		vol_provider = new VolumeProviderCompat(VolumeProviderCompat.VOLUME_CONTROL_RELATIVE, 100, 50) {
+		    @Override
+		    public void onAdjustVolume(int direction) {
+			if(direction != 0 && plist != null) {
+				if(direction > 0) { log_msg("volume increase"); plist.inc_vol(); }
+				else { log_msg("volume decrease"); plist.dec_vol(); }
+			}
+		    }
+		};
+
+		media_session.setPlaybackToRemote(vol_provider);
+		media_session.setActive(true);
 	}
 
 	@Override
@@ -773,6 +890,8 @@ public class AlsaPlayerSrv extends Service {
 	        if(wakeLock != null && wakeLock.isHeld()) wakeLock.release();
 	        if(nm != null) nm.cancel(NOTIFY_ID);
 		if(suShell != null) suShell.close();
+		media_session.setActive(false);
+		media_session.release();
 	        libExit();
 	}	 
 	
@@ -790,7 +909,13 @@ public class AlsaPlayerSrv extends Service {
 		private boolean needResume = false;
 		@Override
 		public void onReceive(Context context, Intent intent) {
-			if (isIntentHeadsetRemoved(intent)) {
+
+                        if(intent.getAction().equalsIgnoreCase(Intent.ACTION_SCREEN_ON)) {
+                                log_msg("SCREEN ON");
+                        } else if(intent.getAction().equalsIgnoreCase(Intent.ACTION_SCREEN_OFF)) {
+                                log_msg("SCREEN OFF");
+				if(plist != null && plist.running && plist.get_mode() == MODE_ALSA && ctx != 0) audioOnScreenOff(ctx);
+                        } else if (isIntentHeadsetRemoved(intent)) {
 				log_msg("Headset Removed: " + intent.getAction());
 				if(plist != null && plist.running && !plist.paused) {
 					if(((headset_mode & HANDLE_HEADSET_REMOVE) != 0)) {
@@ -825,6 +950,8 @@ public class AlsaPlayerSrv extends Service {
 	
 	private void registerHeadsetReciever() {
 		IntentFilter filter = new IntentFilter();
+		filter.addAction(Intent.ACTION_SCREEN_ON);
+		filter.addAction(Intent.ACTION_SCREEN_OFF);
 		filter.addAction(Intent.ACTION_HEADSET_PLUG);
 		filter.addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
 		registerReceiver(headsetReciever, filter);

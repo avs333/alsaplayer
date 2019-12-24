@@ -140,6 +140,7 @@ extern int alsa_is_mmapped(playback_ctx *ctx);
 extern int alsa_get_devices(char ***dev_names);
 extern int alsa_is_usb_card(JNIEnv *env, jobject obj, int card);
 extern int alsa_is_offload_device(JNIEnv *env, jobject obj, int card, int device);
+extern bool alsa_on_screenoff(playback_ctx *ctx);
 #endif
 extern char *alsa_current_device_info(playback_ctx *ctx);
 #ifndef ANDROID

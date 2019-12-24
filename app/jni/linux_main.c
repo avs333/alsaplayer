@@ -45,7 +45,7 @@ void bye(int sig)
 
 static int usage(char *prog) 
 {
-   printf("Usage: %s [-x file] [-c card] [-d device] [-s min:sec | -t track_no] [-p num:sz] [-q] (<-i> | <file>)\n", prog);
+   printf("Usage: %s [-x file] [-c card] [-d device] (-i | [-s min:sec | -t track_no] [-p num:sz] [-q] file)\n", prog);
    return printf(
 #ifdef ANDLINUX
 		 "-x\tspecify custom xml config (default is /sdcard/.alsaplayer/cards.xml)\n"
